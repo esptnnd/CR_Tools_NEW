@@ -1,0 +1,1 @@
+cd ~/01_CR_ESPTNND/99_CONCEK2/ && mobatch -p 70 -t 30 ~/01_CR_ESPTNND/99_CONCEK2/sites_list_ENM-RAN1A.txt  ~/01_CR_ESPTNND/99_CONCEK2/command_mos.txt  ~/01_CR_ESPTNND/LOG/99_CONCEK2/
