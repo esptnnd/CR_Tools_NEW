@@ -23,7 +23,7 @@ import json
 from lib.concheck import run_concheck
 
 # Configuration variables will be loaded from settings.json
-
+####TEST
 
 def remove_ansi_escape_sequences(text):
     ansi_escape = re.compile(r'\x1B\[[0-?]*[ -/]*[@-~]')
