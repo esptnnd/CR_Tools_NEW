@@ -1,0 +1,9 @@
+lt cell|sectorcar
+y
+
+
+##########START_CONCHECK
+
+hgetc ^sectorcar maxtx|reser
+hgetc ^EUtranCellFDD= cellId|rachroot|physical|operationalState|administrativeState
+
