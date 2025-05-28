@@ -340,7 +340,7 @@ class UploadWorker(QObject):
             # 0. Read IPDB mapping
             node_to_oss = None
             if self.mode == "TRUE":
-                ipdb_path = os.path.join("00_IPDB", "ipdb_delim_ALLOSS.txt")
+                ipdb_path = os.path.join("00_IPDB", "ipdb_delim_ALLOSS_NEW.txt")
                 if not os.path.exists(ipdb_path):
                     self.output.emit(f"[ERROR] IPDB file not found: {ipdb_path}")
                     self.error.emit(f"IPDB file not found: {ipdb_path}")
