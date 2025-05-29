@@ -1,3 +1,12 @@
+# -----------------------------------------------------------------------------
+# Author      : esptnnd
+# Company     : Ericsson Indonesia
+# Created on  : 7 May 2025
+# Improve on  : 29 May 2025
+# Description : CR TOOLS by esptnnd — built for the ECT Project to help the team
+#               execute faster, smoother, and with way less hassle.
+#               Making life easier, one script at a time!
+# -----------------------------------------------------------------------------
 import sys
 import os
 import pandas as pd
@@ -259,8 +268,8 @@ class ExcelReaderApp(QMainWindow):
         self.file_queue = Queue()  # Queue to store selected files
         self.append_log_data = []  # Initialize an empty list to store log data
         self.date_report = today.strftime('%Y%m%d_%H%M%S')
+        self.excel_writer = None  # Store reference to Excel writer worker
 
-    
     def initUI(self):
         self.setWindowTitle("REPORT CR GENERATOR")
         self.setGeometry(100, 100, 400, 300)
@@ -327,137 +336,32 @@ class ExcelReaderApp(QMainWindow):
     def update_overall_progress(self, value):
         self.progress_bar.setValue(value)
 
-    def on_thread_finished(self, file_path, log_data , selected_file , output_dir):
-        ##append_data = []
-        ##print(os.path.join(output_dir,selected_file ))
+    def on_thread_finished(self, file_path, log_data, selected_file, output_dir):
         report_file = f"{output_dir}\{selected_file}.xlsx"
         
-        write_logs_to_excel(log_data, report_file, selected_file)
-        
-        ##self.show_success_message(f"Your Report Available On :\n{report_file}")
-        print(f"Your Report Available On :\n{report_file}\n\n")
-        ##print(log_data[0][0])
-        ##print(cek)
+        # Create and start Excel writer worker
+        self.excel_writer = write_logs_to_excel(log_data, report_file, selected_file)
+        self.excel_writer.progress.connect(self.update_overall_progress)
+        self.excel_writer.finished.connect(lambda filename: self.on_excel_written(filename, log_data))
+        self.excel_writer.error.connect(self.show_error_message)
+        self.excel_writer.start()
+
+    def on_excel_written(self, filename, log_data):
+        print(f"Your Report Available On :\n{filename}\n\n")
         self.append_log_data.extend(log_data)
         
         # Check if all files are processed
         if self.file_queue.empty():
-            self.processing_finished.emit()  # Signal that all files are processed
+            self.processing_finished.emit()
             work_dir = os.getcwd()
             self.summary_excel = os.path.join(work_dir, "output", "Summary_" + self.date_report +".xlsx")
-            write_logs_to_excel(self.append_log_data, self.summary_excel, "NONAME")
-            # 1. Create the DataFrame from log data with tqdm
-            data_rows = [row for row in tqdm(self.append_log_data, desc="Creating DataFrame rows")]
-            df = pd.DataFrame(data_rows, columns=["CR", "Site", "Script", "Command", "Report", "TAG", "Full_cmd"])
-            column_names = list(df.columns)
-
-            # Enable tqdm for pandas
-            tqdm.pandas()
-
-            pattern = r"^Total.*?MOs\s+attempted,\s+([0-9]{1,5})\s+MOs\s+(.*?)$"
-            regex = re.compile(pattern)
-
-            # Function to apply regex and format string
-            def format_report(value):
-                match = regex.match(str(value))
-                if match:
-                    attempted = int(match.group(1))
-                    result = match.group(2)
-                    if attempted == 0:
-                        return value
-                    else:    
-                        return f"TOTAL X MOs {result}"
-                return value  # This won't be used since we only apply to matching rows
-
-            # Only apply to rows that match the regex
-            mask = df['Report'].astype(str).str.match(pattern)
-            df.loc[mask, 'Report'] = df.loc[mask, 'Report'].progress_apply(format_report)               
-
-            # 2. Build pivot_df manually with tqdm
-            grouped = df.groupby([column_names[0], column_names[4]])  # ['CR', 'Report']
-            pivot_data = []
-
-            for (cr, report), group in tqdm(grouped, desc="Building pivot_df", total=grouped.ngroups):
-                pivot_data.append({
-                    column_names[0]: cr,
-                    column_names[4]: report,
-                    'Count Result': len(group)
-                })
-
-            pivot_df = pd.DataFrame(pivot_data)
-
-            # 3. Build pivot_df2 manually with tqdm
-            grouped2 = df.groupby(column_names[0])  # ['CR']
-            pivot_data2 = []
-
-            for cr, group in tqdm(grouped2, desc="Building pivot_df2", total=grouped2.ngroups):
-                pivot_data2.append({
-                    column_names[0]: cr,
-                    'Total': len(group)
-                })
-
-            pivot_df2 = pd.DataFrame(pivot_data2)
-
-            # 4. Merge and calculate percentage with progress bar
-            merged_df = pd.merge(pivot_df, pivot_df2, on='CR', how='left')
-
-            # Add progress bar while calculating percentage
-            merged_df['Percentage'] = [
-                '{:.1f}%'.format((count / total) * 100)
-                for count, total in tqdm(zip(merged_df['Count Result'], merged_df['Total']),
-                                         total=len(merged_df), desc="Calculating percentage")
-            ]
-
-            # Now you can proceed with further logic like saving or parsing summary
-            self.parse_summary(merged_df, self.summary_excel)
-            self.show_success_message("ALL DONE")
-        
-            ##print(self.append_log_data)
-
-     
-
-    def parse_summary(self, pivot_df, excel_temp):
-        workbook = openpyxl.load_workbook(excel_temp)
-        pivot_sheet = workbook.create_sheet(title="Pivot Table")
-        rows = list(dataframe_to_rows(pivot_df, index=True, header=True))
-
-        # Set column widths
-        column_widths = {2: 60, 3: 30, 4: 12, 5: 6, 6: 12}
-        for col_idx, width in column_widths.items():
-            pivot_sheet.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = width
-
-        # Write rows to worksheet with progress bar
-        for r_idx, row in enumerate(tqdm(rows, desc="Creating Pivot Table", unit="row"), 1):
-            for c_idx, value in enumerate(row, 1):
-                cell = pivot_sheet.cell(row=r_idx, column=c_idx, value=value)
-
-                # Apply bold font to index column
-                if c_idx == 2:
-                    cell.font = Font(bold=True)
-
-                # Apply color fill to specific category
-                if c_idx == 3:
-                    TAG_REMARK, TAG_COLOR = CATEGORY_CHECKING(value)
-                    cell.fill = PatternFill(start_color=TAG_COLOR, end_color=TAG_COLOR, fill_type="solid")
-
-                # Apply border to all cells
-                cell.border = Border(
-                    left=Side(style='thin'),
-                    right=Side(style='thin'),
-                    top=Side(style='thin'),
-                    bottom=Side(style='thin')
-                )
-
-        # Highlight the header row (first row)
-        for col_idx in range(1, 7):
-            pivot_sheet.cell(row=1, column=col_idx).fill = PatternFill(start_color="0EA1DD", end_color="0EA1DD", fill_type="solid")
-
-        # Optionally delete second row (as in original)
-        pivot_sheet.delete_rows(2)
-
-        # Save the workbook
-        workbook.save(excel_temp)
-   
+            
+            # Create and start Excel writer worker for summary
+            self.excel_writer = write_logs_to_excel(self.append_log_data, self.summary_excel, "NONAME")
+            self.excel_writer.progress.connect(self.update_overall_progress)
+            self.excel_writer.finished.connect(lambda _: self.show_success_message("ALL DONE"))
+            self.excel_writer.error.connect(self.show_error_message)
+            self.excel_writer.start()
 
     def open_folder_dialog(self):
         self.folder_path = QFileDialog.getExistingDirectory(self, "Select Folder")
@@ -480,7 +384,7 @@ class ExcelReaderApp(QMainWindow):
 
 
     def read_selected_excel(self):
-        self.file_queue.queue.clear()  # Clear existing queue
+        self.file_queue.queue.clear()
 
 
         selected_items = self.file_list.selectedItems()
@@ -546,189 +450,202 @@ class ExcelReaderApp(QMainWindow):
 
 from tqdm import tqdm
 
-# Function to write log data to an Excel file
-def write_logs_to_excel(log_data, excel_filename, selected_file):
-    # Create a new Excel workbook
-    wb = openpyxl.Workbook()
-    ws = wb.active
+class ExcelWriterWorker(QThread):
+    finished = pyqtSignal(str)
+    progress = pyqtSignal(int)
+    error = pyqtSignal(str)
 
-    # Define a regular expression pattern to remove illegal characters
-    illegal_char_pattern = re.compile(r'[\000-\010]|[\013-\014]|[\016-\037]')
+    def __init__(self, log_data, excel_filename, selected_file):
+        super().__init__()
+        self.log_data = log_data
+        self.excel_filename = excel_filename
+        self.selected_file = selected_file
 
-    # Write headers
-    headers = ["CR", "Site", "Command", "Parameter", "Report", "TAG", "Script", "Full command log"]
-    column_widths = [20, 20, 45, 25, 25, 20, 40, 70]
+    def run(self):
+        try:
+            # Create a new Excel workbook
+            wb = openpyxl.Workbook()
+            ws = wb.active
 
-    for col_num, (header, width) in enumerate(zip(headers, column_widths), start=1):
-        cell = ws.cell(row=1, column=col_num, value=header)
-        cell.font = Font(size=12, bold=True)
-        cell.fill = PatternFill(start_color="0EA1DD", end_color="0EA1DD", fill_type="solid")
-        ws.column_dimensions[openpyxl.utils.get_column_letter(col_num)].width = width
+            # Define a regular expression pattern to remove illegal characters
+            illegal_char_pattern = re.compile(r'[\000-\010]|[\013-\014]|[\016-\037]')
 
-    # Write log data with tqdm progress bar
-    for idx, (FILE_LOG, Site, type_script, line_execute, TAG_RESULT, line_full_log, att_list) in tqdm(
-        enumerate(log_data, start=2),
-        total=len(log_data),
-        desc="Writing to Excel"
-    ):
-        log1 = illegal_char_pattern.sub('', line_full_log)
-        TAG_REMARK, TAG_COLOR = CATEGORY_CHECKING(TAG_RESULT)
-        line_execute = next((m.group(1) for line in att_list if (m := re.match(r"^[A-Z0-9_\-]{4,180}>(.*?)$", line))), "") if line_execute == "NULL" else line_execute
+            # Write headers
+            headers = ["CR", "Site", "Command", "Parameter", "Report", "TAG", "Script", "Full command log"]
+            column_widths = [20, 20, 45, 25, 25, 20, 40, 70]
 
-        parameter_match = re.search(r"^SET\s+.*?\s+(.*?)\s+\=", line_execute, re.IGNORECASE)
-        parameter = parameter_match.group(1) if parameter_match else ""
+            for col_num, (header, width) in enumerate(zip(headers, column_widths), start=1):
+                cell = ws.cell(row=1, column=col_num, value=header)
+                cell.font = Font(size=12, bold=True)
+                cell.fill = PatternFill(start_color="0EA1DD", end_color="0EA1DD", fill_type="solid")
+                ws.column_dimensions[openpyxl.utils.get_column_letter(col_num)].width = width
 
-        if not parameter:
-            parameter_match = re.search(r">\s+set\s+.*?\s+(.*?)\s+", line_execute, re.IGNORECASE)
-            parameter = parameter_match.group(1) if parameter_match else ""
+            # Write log data with progress updates
+            total_rows = len(self.log_data)
+            for idx, (FILE_LOG, Site, type_script, line_execute, TAG_RESULT, line_full_log, att_list) in enumerate(self.log_data, start=2):
+                # Update progress
+                progress = int((idx / total_rows) * 100)
+                self.progress.emit(progress)
 
-        # Write data to cells
-        ws.cell(row=idx, column=1, value=FILE_LOG).font = Font(size=9, bold=True)
-        ws.cell(row=idx, column=2, value=Site).font = Font(size=9, bold=True)
-        ws.cell(row=idx, column=3, value=line_execute).font = Font(size=9)
-        ws.cell(row=idx, column=4, value=parameter).font = Font(size=9)
-        ws.cell(row=idx, column=5, value=TAG_REMARK).font = Font(size=9)
-        ws.cell(row=idx, column=6, value=log1).font = Font(size=9)
-        ws.cell(row=idx, column=7, value=type_script).font = Font(size=9)
-        ws.cell(row=idx, column=8, value='\n'.join(att_list)).font = Font(size=9)
+                log1 = illegal_char_pattern.sub('', line_full_log)
+                TAG_REMARK, TAG_COLOR = CATEGORY_CHECKING(TAG_RESULT)
+                line_execute = next((m.group(1) for line in att_list if (m := re.match(r"^[A-Z0-9_\-]{4,180}>(.*?)$", line))), "") if line_execute == "NULL" else line_execute
 
-        # Apply color fill to the "Report" column
-        ws.cell(row=idx, column=5).fill = PatternFill(start_color=TAG_COLOR, end_color=TAG_COLOR, fill_type="solid")
+                parameter_match = re.search(r"^SET\s+.*?\s+(.*?)\s+\=", line_execute, re.IGNORECASE)
+                parameter = parameter_match.group(1) if parameter_match else ""
 
-    # Create a DataFrame from the log data for pivot tables
-    df = pd.DataFrame(log_data, columns=["CR", "Site", "Script", "Command", "TAG", "Full Log", "Attachments"])
-    df['Report'] = df['TAG'].apply(lambda x: CATEGORY_CHECKING(x)[0])
+                if not parameter:
+                    parameter_match = re.search(r">\s+set\s+.*?\s+(.*?)\s+", line_execute, re.IGNORECASE)
+                    parameter = parameter_match.group(1) if parameter_match else ""
 
-    # Create first pivot table (by Site)
-    pivot_df = pd.pivot_table(
-        df,
-        values='Command',
-        index=['Site'],
-        columns=['Report'],
-        aggfunc='count',
-        fill_value=0
-    )
+                # Write data to cells
+                ws.cell(row=idx, column=1, value=FILE_LOG).font = Font(size=9, bold=True)
+                ws.cell(row=idx, column=2, value=Site).font = Font(size=9, bold=True)
+                ws.cell(row=idx, column=3, value=line_execute).font = Font(size=9)
+                ws.cell(row=idx, column=4, value=parameter).font = Font(size=9)
+                ws.cell(row=idx, column=5, value=TAG_REMARK).font = Font(size=9)
+                ws.cell(row=idx, column=6, value=log1).font = Font(size=9)
+                ws.cell(row=idx, column=7, value=type_script).font = Font(size=9)
+                ws.cell(row=idx, column=8, value='\n'.join(att_list)).font = Font(size=9)
 
-    # Add total column
-    pivot_df['Total'] = pivot_df.sum(axis=1)
+                # Apply color fill to the "Report" column
+                ws.cell(row=idx, column=5).fill = PatternFill(start_color=TAG_COLOR, end_color=TAG_COLOR, fill_type="solid")
 
-    # Create pivot table sheet
-    pivot_sheet = wb.create_sheet(title="Pivot Table")
-    
-    # Write pivot table headers
-    headers = ['Site'] + list(pivot_df.columns)
-    for col_num, header in enumerate(headers, start=1):
-        cell = pivot_sheet.cell(row=1, column=col_num, value=header)
-        cell.font = Font(size=12, bold=True)
-        cell.fill = PatternFill(start_color="0EA1DD", end_color="0EA1DD", fill_type="solid")
-        pivot_sheet.column_dimensions[openpyxl.utils.get_column_letter(col_num)].width = 15
+            # Create a DataFrame from the log data for pivot tables
+            df = pd.DataFrame(self.log_data, columns=["CR", "Site", "Script", "Command", "TAG", "Full Log", "Attachments"])
+            df['Report'] = df['TAG'].apply(lambda x: CATEGORY_CHECKING(x)[0])
 
-    # Write pivot table data
-    for row_idx, (site, row) in enumerate(pivot_df.iterrows(), start=2):
-        pivot_sheet.cell(row=row_idx, column=1, value=site).font = Font(size=9, bold=True)
-        for col_idx, value in enumerate(row, start=2):
-            cell = pivot_sheet.cell(row=row_idx, column=col_idx, value=value)
-            cell.font = Font(size=9)
-            cell.border = Border(
-                left=Side(style='thin'),
-                right=Side(style='thin'),
-                top=Side(style='thin'),
-                bottom=Side(style='thin')
+            # Create first pivot table (by Site)
+            pivot_df = pd.pivot_table(
+                df,
+                values='Command',
+                index=['Site'],
+                columns=['Report'],
+                aggfunc='count',
+                fill_value=0
             )
 
-    # Add total row
-    total_row = len(pivot_df) + 2
-    pivot_sheet.cell(row=total_row, column=1, value="Total").font = Font(size=9, bold=True)
-    for col_idx, value in enumerate(pivot_df.sum(), start=2):
-        cell = pivot_sheet.cell(row=total_row, column=col_idx, value=value)
-        cell.font = Font(size=9, bold=True)
-        cell.fill = PatternFill(start_color="0EA1DD", end_color="0EA1DD", fill_type="solid")
-        cell.border = Border(
-            left=Side(style='thin'),
-            right=Side(style='thin'),
-            top=Side(style='thin'),
-            bottom=Side(style='thin')
-        )
+            # Add total column
+            pivot_df['Total'] = pivot_df.sum(axis=1)
 
-    # Create second pivot table (Report Summary)
-    report_summary = df.groupby('Report').size().reset_index(name='Count')
-    total_commands = report_summary['Count'].sum()
-    report_summary['Percentage'] = (report_summary['Count'] / total_commands * 100).round(1).astype(str) + '%'
+            # Create pivot table sheet
+            pivot_sheet = wb.create_sheet(title="Pivot Table")
+            
+            # Write pivot table headers
+            headers = ['Site'] + list(pivot_df.columns)
+            for col_num, header in enumerate(headers, start=1):
+                cell = pivot_sheet.cell(row=1, column=col_num, value=header)
+                cell.font = Font(size=12, bold=True)
+                cell.fill = PatternFill(start_color="0EA1DD", end_color="0EA1DD", fill_type="solid")
+                pivot_sheet.column_dimensions[openpyxl.utils.get_column_letter(col_num)].width = 15
 
-    # Create Report Summary sheet
-    report_sheet = wb.create_sheet(title="Pivot DF Summary")
-    
-    # Write headers
-    headers = ['Report', 'Count', 'Percentage']
-    for col_num, header in enumerate(headers, start=1):
-        cell = report_sheet.cell(row=1, column=col_num, value=header)
-        cell.font = Font(size=12, bold=True)
-        cell.fill = PatternFill(start_color="0EA1DD", end_color="0EA1DD", fill_type="solid")
-        report_sheet.column_dimensions[openpyxl.utils.get_column_letter(col_num)].width = 30
+            # Write pivot table data
+            for row_idx, (site, row) in enumerate(pivot_df.iterrows(), start=2):
+                pivot_sheet.cell(row=row_idx, column=1, value=site).font = Font(size=9, bold=True)
+                for col_idx, value in enumerate(row, start=2):
+                    cell = pivot_sheet.cell(row=row_idx, column=col_idx, value=value)
+                    cell.font = Font(size=9)
+                    cell.border = Border(
+                        left=Side(style='thin'),
+                        right=Side(style='thin'),
+                        top=Side(style='thin'),
+                        bottom=Side(style='thin')
+                    )
 
-    # Write data
-    for row_idx, (_, row) in enumerate(report_summary.iterrows(), start=2):
-        # Write Report
-        cell = report_sheet.cell(row=row_idx, column=1, value=row['Report'])
-        cell.font = Font(size=9)
-        cell.border = Border(
-            left=Side(style='thin'),
-            right=Side(style='thin'),
-            top=Side(style='thin'),
-            bottom=Side(style='thin')
-        )
+            # Add total row
+            total_row = len(pivot_df) + 2
+            pivot_sheet.cell(row=total_row, column=1, value="Total").font = Font(size=9, bold=True)
+            for col_idx, value in enumerate(pivot_df.sum(), start=2):
+                cell = pivot_sheet.cell(row=total_row, column=col_idx, value=value)
+                cell.font = Font(size=9, bold=True)
+                cell.fill = PatternFill(start_color="0EA1DD", end_color="0EA1DD", fill_type="solid")
+                cell.border = Border(
+                    left=Side(style='thin'),
+                    right=Side(style='thin'),
+                    top=Side(style='thin'),
+                    bottom=Side(style='thin')
+                )
 
-        # Write Count
-        cell = report_sheet.cell(row=row_idx, column=2, value=row['Count'])
-        cell.font = Font(size=9)
-        cell.border = Border(
-            left=Side(style='thin'),
-            right=Side(style='thin'),
-            top=Side(style='thin'),
-            bottom=Side(style='thin')
-        )
+            # Create second pivot table (Report Summary)
+            report_summary = df.groupby('Report').size().reset_index(name='Count')
+            total_commands = report_summary['Count'].sum()
+            report_summary['Percentage'] = (report_summary['Count'] / total_commands * 100).round(1).astype(str) + '%'
 
-        # Write Percentage
-        cell = report_sheet.cell(row=row_idx, column=3, value=row['Percentage'])
-        cell.font = Font(size=9)
-        cell.border = Border(
-            left=Side(style='thin'),
-            right=Side(style='thin'),
-            top=Side(style='thin'),
-            bottom=Side(style='thin')
-        )
+            # Create Report Summary sheet
+            report_sheet = wb.create_sheet(title="Pivot DF Summary")
+            
+            # Write headers
+            headers = ['Report', 'Count', 'Percentage']
+            for col_num, header in enumerate(headers, start=1):
+                cell = report_sheet.cell(row=1, column=col_num, value=header)
+                cell.font = Font(size=12, bold=True)
+                cell.fill = PatternFill(start_color="0EA1DD", end_color="0EA1DD", fill_type="solid")
+                report_sheet.column_dimensions[openpyxl.utils.get_column_letter(col_num)].width = 30
 
-        # Apply color fill based on Report category
-        _, TAG_COLOR = CATEGORY_CHECKING(row['Report'])
-        cell = report_sheet.cell(row=row_idx, column=1)
-        cell.fill = PatternFill(start_color=TAG_COLOR, end_color=TAG_COLOR, fill_type="solid")
+            # Write data
+            for row_idx, (_, row) in enumerate(report_summary.iterrows(), start=2):
+                # Write Report
+                cell = report_sheet.cell(row=row_idx, column=1, value=row['Report'])
+                cell.font = Font(size=9)
+                cell.border = Border(
+                    left=Side(style='thin'),
+                    right=Side(style='thin'),
+                    top=Side(style='thin'),
+                    bottom=Side(style='thin')
+                )
 
-    # Add total row
-    total_row = len(report_summary) + 2
-    report_sheet.cell(row=total_row, column=1, value="Total").font = Font(size=9, bold=True)
-    report_sheet.cell(row=total_row, column=2, value=total_commands).font = Font(size=9, bold=True)
-    report_sheet.cell(row=total_row, column=3, value="100%").font = Font(size=9, bold=True)
+                # Write Count
+                cell = report_sheet.cell(row=row_idx, column=2, value=row['Count'])
+                cell.font = Font(size=9)
+                cell.border = Border(
+                    left=Side(style='thin'),
+                    right=Side(style='thin'),
+                    top=Side(style='thin'),
+                    bottom=Side(style='thin')
+                )
 
-    # Format total row
-    for col in range(1, 4):
-        cell = report_sheet.cell(row=total_row, column=col)
-        cell.fill = PatternFill(start_color="0EA1DD", end_color="0EA1DD", fill_type="solid")
-        cell.border = Border(
-            left=Side(style='thin'),
-            right=Side(style='thin'),
-            top=Side(style='thin'),
-            bottom=Side(style='thin')
-        )
+                # Write Percentage
+                cell = report_sheet.cell(row=row_idx, column=3, value=row['Percentage'])
+                cell.font = Font(size=9)
+                cell.border = Border(
+                    left=Side(style='thin'),
+                    right=Side(style='thin'),
+                    top=Side(style='thin'),
+                    bottom=Side(style='thin')
+                )
 
-    # Save the Excel workbook
-    wb.save(excel_filename)
-     
+                # Apply color fill based on Report category
+                _, TAG_COLOR = CATEGORY_CHECKING(row['Report'])
+                cell = report_sheet.cell(row=row_idx, column=1)
+                cell.fill = PatternFill(start_color=TAG_COLOR, end_color=TAG_COLOR, fill_type="solid")
 
+            # Add total row
+            total_row = len(report_summary) + 2
+            report_sheet.cell(row=total_row, column=1, value="Total").font = Font(size=9, bold=True)
+            report_sheet.cell(row=total_row, column=2, value=total_commands).font = Font(size=9, bold=True)
+            report_sheet.cell(row=total_row, column=3, value="100%").font = Font(size=9, bold=True)
 
+            # Format total row
+            for col in range(1, 4):
+                cell = report_sheet.cell(row=total_row, column=col)
+                cell.fill = PatternFill(start_color="0EA1DD", end_color="0EA1DD", fill_type="solid")
+                cell.border = Border(
+                    left=Side(style='thin'),
+                    right=Side(style='thin'),
+                    top=Side(style='thin'),
+                    bottom=Side(style='thin')
+                )
 
+            # Save the Excel workbook
+            wb.save(self.excel_filename)
+            self.finished.emit(self.excel_filename)
 
+        except Exception as e:
+            self.error.emit(str(e))
 
-
+def write_logs_to_excel(log_data, excel_filename, selected_file):
+    worker = ExcelWriterWorker(log_data, excel_filename, selected_file)
+    return worker
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

@@ -1,3 +1,13 @@
+# -----------------------------------------------------------------------------
+# Author      : esptnnd
+# Company     : Ericsson Indonesia
+# Created on  : 7 May 2025
+# Improve on  : 29 May 2025
+# Description : CR TOOLS by esptnnd — built for the ECT Project to help the team
+#               execute faster, smoother, and with way less hassle.
+#               Making life easier, one script at a time!
+# -----------------------------------------------------------------------------
+
 import sys
 import os
 import json
@@ -514,7 +524,7 @@ class SSHTab(QWidget):
 class SSHManager(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("CR TOOLS")
+        self.setWindowTitle("CR TOOLS by esptnnd")
 
         # Load configuration from settings.json
         settings_path = os.path.join(os.path.dirname(__file__), 'settings.json')
@@ -551,7 +561,7 @@ class SSHManager(QMainWindow):
         # Add Actions
         self.action_cr_executor_true = QAction("CR EXECUTOR TRUE", self)
         self.action_cr_executor_dtac = QAction("CR EXECUTOR DTAC", self)
-        self.action_concheck_tools = QAction("CONCHECK TOOLS", self)
+        self.action_concheck_tools = QAction("CR REPORT GENERATOR", self)
 
         self.tools_menu.addAction(self.action_cr_executor_true)
         self.tools_menu.addAction(self.action_cr_executor_dtac)

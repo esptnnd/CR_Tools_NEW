@@ -1,3 +1,12 @@
+# -----------------------------------------------------------------------------
+# Author      : esptnnd
+# Company     : Ericsson Indonesia
+# Created on  : 7 May 2025
+# Description : CR TOOLS by esptnnd — built for the ECT Project to help the team
+#               execute faster, smoother, and with way less hassle.
+#               Making life easier, one script at a time!
+# -----------------------------------------------------------------------------
+
 # Dialog classes
 
 from PyQt5.QtWidgets import (
