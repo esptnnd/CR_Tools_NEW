@@ -18,7 +18,7 @@ from lib.concheck import run_concheck
 from lib.ssh import InteractiveSSH # Assuming InteractiveSSH is needed by SSHTab
 from lib.dialogs import ScreenSelectionDialog, MultiConnectDialog, UploadCRDialog, DownloadLogDialog # Import dialog classes
 from lib.workers import UploadWorker, DownloadLogWorker # Import worker classes
-from lib.widgets import ConcheckToolsWidget # Import ConcheckToolsWidget
+from lib.widgets import ConcheckToolsWidget, CRExecutorWidget # Import ConcheckToolsWidget and CRExecutorWidget
 from lib.log_checker import check_logs_and_export_to_excel # Import the log checking function
 
 
@@ -374,49 +374,6 @@ class SSHTab(QWidget):
         #     assigned_nodes=assigned_nodes,
         #     mobatch_execution_mode=mobatch_execution_mode
         # )
-
-
-class CRExecutorWidget(QWidget):
-    def __init__(self, targets, ssh_manager, parent=None, session_type="TRUE"):
-        super().__init__(parent)
-        self.ssh_manager = ssh_manager # Keep reference to the manager
-        self.targets = targets  # Store targets
-        self.session_type = session_type # Store the type (TRUE or DTAC)
-
-        main_layout = QVBoxLayout(self)
-
-        # Create a layout for the top buttons (like Connect Selected)
-        top_button_layout = QHBoxLayout() # Use QHBoxLayout for horizontal arrangement
-        self.connect_selected_button = QPushButton("Connect Selected Sessions")
-        self.download_log_button = QPushButton("Download LOG")
-        self.upload_cr_button = QPushButton("UPLOAD CR")
-        top_button_layout.addWidget(self.connect_selected_button)
-        top_button_layout.addWidget(self.download_log_button)
-        top_button_layout.addWidget(self.upload_cr_button)
-        top_button_layout.addStretch() # Push buttons to the left
-
-        # Add the top button layout to the main layout
-        main_layout.addLayout(top_button_layout)
-
-        self.tabs = QTabWidget()
-        main_layout.addWidget(self.tabs) # Add tabs to the main layout
-
-        self.ssh_tabs = []
-
-        # Make tabs closable
-        self.tabs.setTabsClosable(False) # Set to False to disable closing tabs
-        # Connect the tab close requested signal - Handled by SSHManager
-
-        for target in targets:
-            # Pass self (the CRExecutorWidget instance) and the ssh_manager instance to the SSHTab
-            tab = SSHTab(target, ssh_manager)
-            self.ssh_tabs.append(tab)
-            self.tabs.addTab(tab, target['session_name'])
-
-        # Connect the new button's signal to the SSHManager's corresponding slots
-        self.connect_selected_button.clicked.connect(lambda: self.ssh_manager.open_multi_connect_dialog(self.targets)) # Pass targets
-        self.download_log_button.clicked.connect(lambda: self.ssh_manager.open_download_log_dialog(self.targets)) # Pass targets
-        self.upload_cr_button.clicked.connect(lambda: self.ssh_manager.open_upload_cr_dialog(self.targets)) # Pass targets
 
 
 class SSHManager(QMainWindow):

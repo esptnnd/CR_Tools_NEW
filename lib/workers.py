@@ -428,3 +428,18 @@ class DownloadLogWorker(QObject):
         except Exception as e:
             self.output.emit(f"Download failed for {self.target['session_name']}: {e}")
             self.error.emit(f"Download failed for {self.target['session_name']}: {e}")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+            

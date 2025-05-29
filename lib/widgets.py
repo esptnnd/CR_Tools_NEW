@@ -5,8 +5,9 @@ from PyQt5.QtWidgets import (
     QTabWidget, QMainWindow, QLabel, QProgressBar, QStackedWidget
 )
 from PyQt5.QtCore import (
-    QEventLoop, QTimer, QObject, pyqtSignal, QThread, Qt, QFileInfo, QDir
+    QEventLoop, QTimer, QObject, pyqtSignal, QThread, Qt, QFileInfo, QDir, QEvent
 )
+from PyQt5.QtGui import QFont, QTextCursor
 import re
 import time # For profiling in SSHTab, maybe move later
 import os
@@ -181,7 +182,7 @@ class SSHTab(QWidget):
 
     def eventFilter(self, obj, event):
         # Command history navigation in input_line
-        if obj == self.input_line and event.type() == Qt.KeyPress:
+        if obj == self.input_line and event.type() == QEvent.KeyPress:
             if event.key() == Qt.Key_Up:
                 if self._command_history and self._history_index > 0:
                     self._history_index -= 1
@@ -201,7 +202,7 @@ class SSHTab(QWidget):
                 # Reset history index on normal typing
                 self._history_index = len(self._command_history)
         # Auto-focus input_line on any key press in the tab or its widgets
-        if event.type() == Qt.KeyPress:
+        if event.type() == QEvent.KeyPress:
             # Check if the source of the event is the batch command text edit
             if obj == self.command_batch_RUN:
                 return super().eventFilter(obj, event) # Let batch command handle its own key press
