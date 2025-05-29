@@ -26,6 +26,7 @@ from .concheck import run_concheck
 from .ssh import InteractiveSSH # Assuming InteractiveSSH is needed by SSHTab
 from .dialogs import ScreenSelectionDialog, MultiConnectDialog, UploadCRDialog, DownloadLogDialog # Import dialogs used by these widgets
 from .workers import UploadWorker, SubfolderLoaderWorker, DownloadLogWorker # Import workers used by these widgets
+from .style import StyledTabWidget, TransparentTextEdit, StyledPushButton, StyledLineEdit, StyledProgressBar, TopButton # Import styled components
 # Assuming check_logs_and_export_to_excel will be moved to lib/log_checker.py later
 # from .log_checker import check_logs_and_export_to_excel
 
@@ -94,30 +95,30 @@ class SSHTab(QWidget):
         super().__init__()
         self.target = target
         self.ssh_manager = ssh_manager # Keep reference to the manager
+        self.setAttribute(Qt.WA_TranslucentBackground)
 
         self.layout = QVBoxLayout()
 
-        self.output_box = QTextEdit()
+        self.output_box = TransparentTextEdit()
         self.output_box.setReadOnly(True)
         font = QFont("Consolas", 10)
         self.output_box.setFont(font)
-        self.output_box.setStyleSheet("background-color: black; color: #00FF00;")
 
         # Batch command area
-        self.command_batch_RUN = QTextEdit()
+        self.command_batch_RUN = TransparentTextEdit()
         self.command_batch_RUN.setPlaceholderText("Enter batch commands here, one per line...")
         self.command_batch_RUN.setFixedHeight(80)
-        self.send_batch_button = QPushButton("Send Batch")
-        self.retry_upload_button = QPushButton("Retry Upload")
+        self.send_batch_button = StyledPushButton("Send Batch")
+        self.retry_upload_button = StyledPushButton("Retry Upload")
 
-        self.input_line = QLineEdit()
-        self.send_button = QPushButton("Send")
-        self.connect_button = QPushButton("Connect")
-        self.disconnect_button = QPushButton("Disconnect")
-        self.screen_button = QPushButton("Screen Sessions")
+        self.input_line = StyledLineEdit()
+        self.send_button = StyledPushButton("Send")
+        self.connect_button = StyledPushButton("Connect")
+        self.disconnect_button = StyledPushButton("Disconnect")
+        self.screen_button = StyledPushButton("Screen Sessions")
 
         # Add a progress bar
-        self.progress_bar = QProgressBar()
+        self.progress_bar = StyledProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setVisible(False) # Start hidden
 
@@ -447,9 +448,9 @@ class CRExecutorWidget(QWidget):
 
         # Create a layout for the top buttons (like Connect Selected)
         top_button_layout = QHBoxLayout() # Use QHBoxLayout for horizontal arrangement
-        self.connect_selected_button = QPushButton("Connect Selected Sessions")
-        self.download_log_button = QPushButton("Download LOG")
-        self.upload_cr_button = QPushButton("UPLOAD CR")
+        self.connect_selected_button = TopButton("Connect Selected Sessions")
+        self.download_log_button = TopButton("Download LOG")
+        self.upload_cr_button = TopButton("UPLOAD CR")
         top_button_layout.addWidget(self.connect_selected_button)
         top_button_layout.addWidget(self.download_log_button)
         top_button_layout.addWidget(self.upload_cr_button)
@@ -458,7 +459,8 @@ class CRExecutorWidget(QWidget):
         # Add the top button layout to the main layout
         main_layout.addLayout(top_button_layout)
 
-        self.tabs = QTabWidget()
+        # Use the new StyledTabWidget instead of QTabWidget
+        self.tabs = StyledTabWidget()
         main_layout.addWidget(self.tabs) # Add tabs to the main layout
 
         self.ssh_tabs = []
@@ -474,6 +476,6 @@ class CRExecutorWidget(QWidget):
             self.tabs.addTab(tab, target['session_name'])
 
         # Connect the new button's signal to the SSHManager's corresponding slots
-        self.connect_selected_button.clicked.connect(lambda: self.ssh_manager.open_multi_connect_dialog(self.targets)) # Pass targets
+        self.connect_selected_button.clicked.connect(lambda: self.ssh_manager.open_multi_connect_dialog(self.targets))
         self.download_log_button.clicked.connect(lambda: self.ssh_manager.open_download_log_dialog(self.targets)) # Pass targets
         self.upload_cr_button.clicked.connect(lambda: self.ssh_manager.open_upload_cr_dialog(self.targets)) # Pass targets

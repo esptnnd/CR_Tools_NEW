@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import QTextEdit, QMainWindow, QPushButton, QLineEdit, QProgressBar, QLabel, QMenuBar, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout
+from PyQt5.QtWidgets import QTextEdit, QMainWindow, QPushButton, QLineEdit, QProgressBar, QLabel, QMenuBar, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout, QListWidget, QAbstractItemView, QFrame
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPainter, QColor, QLinearGradient, QPen, QPalette, QBrush, QPixmap, QIcon, QFont
 import os
@@ -10,7 +10,7 @@ STYLE_CONFIG = {
         'secondary': '#1E90FF',  # Dodger Blue
         'background': '#1A1A1A',  # Dark Gray
         'text': '#E0E0E0',  # Light Gray
-        'border': 'rgba(0, 255, 0, 0.3)',
+        'border': 'rgba(128, 128, 128, 0.3)',  # Grey with 30% opacity
         'progress': '#00FF00',
         'menu_bg': '#000000',  # Black
     },
@@ -37,8 +37,8 @@ class TransparentTextEdit(QTextEdit):
         self.setStyleSheet(f"""
             QTextEdit {{
                 background: rgba(26, 26, 26, 0.2);
-                color: {STYLE_CONFIG['colors']['primary']};
-                border: 1px solid {STYLE_CONFIG['colors']['border']};
+                color: white;
+                border: 1px solid rgba(128, 128, 128, 0.3);
                 font-family: {STYLE_CONFIG['fonts']['default'][0]};
                 font-size: {STYLE_CONFIG['fonts']['default'][1]}pt;
                 font-weight: bold;
@@ -68,12 +68,11 @@ class TransparentTextEdit(QTextEdit):
         painter.fillRect(rect.adjusted(0, 0, 0, -rect.height() + 2), highlight)
         
         # Draw border effects
-        painter.setPen(QPen(QColor(STYLE_CONFIG['colors']['primary']), 1))
+        painter.setPen(QPen(QColor(128, 128, 128, 77), 1))  # Grey with 30% opacity
         painter.drawRect(rect.adjusted(1, 1, -1, -1))
         
         # Draw subtle inner glow
-        glow = QPen(QColor(STYLE_CONFIG['colors']['primary']), 1, Qt.DotLine)
-        glow.setColor(QColor(STYLE_CONFIG['colors']['primary']))
+        glow = QPen(QColor(128, 128, 128, 77), 1, Qt.DotLine)  # Grey with 30% opacity
         painter.setPen(glow)
         painter.drawRect(rect.adjusted(2, 2, -2, -2))
         
@@ -85,8 +84,8 @@ class StyledPushButton(QPushButton):
         self.setStyleSheet(f"""
             QPushButton {{
                 background-color: rgba(26, 26, 26, 0.4);
-                color: {STYLE_CONFIG['colors']['primary']};
-                border: 1px solid {STYLE_CONFIG['colors']['border']};
+                color: white;
+                border: 1px solid rgba(128, 128, 128, 0.3);
                 border-radius: 4px;
                 padding: 5px;
                 font-family: {STYLE_CONFIG['fonts']['button'][0]};
@@ -94,11 +93,11 @@ class StyledPushButton(QPushButton):
                 font-weight: bold;
             }}
             QPushButton:hover {{
-                background-color: rgba(0, 255, 0, 0.15);
-                border: 1px solid {STYLE_CONFIG['colors']['primary']};
+                background-color: rgba(255, 255, 255, 0.15);
+                border: 1px solid rgba(128, 128, 128, 0.5);
             }}
             QPushButton:pressed {{
-                background-color: rgba(0, 255, 0, 0.25);
+                background-color: rgba(255, 255, 255, 0.25);
             }}
         """)
 
@@ -108,8 +107,8 @@ class StyledLineEdit(QLineEdit):
         self.setStyleSheet(f"""
             QLineEdit {{
                 background-color: rgba(26, 26, 26, 0.3);
-                color: {STYLE_CONFIG['colors']['primary']};
-                border: 1px solid {STYLE_CONFIG['colors']['border']};
+                color: white;
+                border: 1px solid rgba(128, 128, 128, 0.3);
                 border-radius: 4px;
                 padding: 5px;
                 font-family: {STYLE_CONFIG['fonts']['default'][0]};
@@ -117,7 +116,7 @@ class StyledLineEdit(QLineEdit):
                 font-weight: bold;
             }}
             QLineEdit:focus {{
-                border: 1px solid {STYLE_CONFIG['colors']['primary']};
+                border: 1px solid rgba(128, 128, 128, 0.5);
                 background-color: rgba(26, 26, 26, 0.4);
             }}
         """)
@@ -275,7 +274,7 @@ class CustomTabWidget(QWidget):
                 font-weight: bold;
             }
             QPushButton:checked {
-                background-color: rgba(0, 0, 0, 0.7);
+                background-color: rgba(0, 0, 0, 0.8);
                 border-bottom: 1px solid rgba(255, 255, 255, 0.2);
             }
             QPushButton:hover {
@@ -327,6 +326,70 @@ class CustomTabWidget(QWidget):
         painter.drawRect(self.rect().adjusted(0, 0, -1, -1))
         
         super().paintEvent(event)
+
+class StyledTabWidget(QTabWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setStyleSheet("""
+            QTabWidget::pane {
+                border: 1px solid rgba(128, 128, 128, 0.3);
+                background-color: rgba(0, 0, 0, 0.96);
+                border-radius: 4px;
+            }
+            QTabBar::tab {
+                background-color: rgba(60, 60, 60, 0.69);
+                color: white;
+                padding: 8px 20px;
+                min-width: 150px;
+                border: 1px solid rgba(128, 128, 128, 0.8);
+                border-bottom: none;
+                border-top-left-radius: 4px;
+                border-top-right-radius: 4px;
+                font-weight: bold;
+                font-family: Consolas;
+                font-size: 10pt;
+            }
+            QTabBar::tab:selected {
+                background-color: rgba(0, 0, 0, 0.98);
+                border-bottom: 1px solid rgba(128, 128, 128, 0.3);
+                color: white;
+            }
+            QTabBar::tab:hover {
+                background-color: rgba(0, 0, 0, 0.8);
+                color: white;
+            }
+            QTabWidget::tab-bar {
+                alignment: left;
+            }
+            QTabBar {
+                alignment: left;
+            }
+        """)
+
+class TopButton(StyledPushButton):
+    def __init__(self, text, parent=None):
+        super().__init__(text, parent)
+        self.setStyleSheet(f"""
+            QPushButton {{
+                background-color: rgba(0, 0, 0, 0.9);
+                color: white;
+                border: 1px solid rgba(128, 128, 128, 0.8);
+                border-radius: 4px;
+                padding: 8px 20px;
+                font-family: {STYLE_CONFIG['fonts']['button'][0]};
+                font-size: {STYLE_CONFIG['fonts']['button'][1]}pt;
+                font-weight: bold;
+                min-width: 150px;
+            }}
+            QPushButton:hover {{
+                background-color: rgba(255, 255, 255, 0.15);
+                border: 1px solid rgba(128, 128, 128, 0.8);
+            }}
+            QPushButton:pressed {{
+                background-color: rgba(255, 255, 255, 0.25);
+            }}
+        """)
 
 def setup_window_style(window):
     """Setup window styling including background and logo"""
@@ -407,4 +470,88 @@ def update_window_style(window):
         painter.end()
         
         palette.setBrush(QPalette.Window, QBrush(background))
-        window.setPalette(palette) 
+        window.setPalette(palette)
+
+class StyledListWidget(QListWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setSelectionMode(QAbstractItemView.MultiSelection)
+        self.setStyleSheet("""
+            QListWidget {
+                background-color: rgba(26, 26, 26, 0.93);
+                color: white;
+                border: 1px solid rgba(128, 128, 128, 0.94);
+                border-radius: 4px;
+                padding: 5px;
+                font-family: Consolas;
+                font-size: 10pt;
+                font-weight: bold;
+            }
+            QListWidget::item {
+                padding: 5px;
+            }
+            QListWidget::item:selected {
+                background-color: rgba(255, 255, 255, 0.15);
+                color: white;
+            }
+        """)
+
+class StyledContainer(QFrame):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setStyleSheet("""
+            QFrame {
+                background-color: rgba(26, 26, 26, 0.93);
+                border: 1px solid rgba(128, 128, 128, 0.94);
+                border-radius: 4px;
+                padding: 5px;
+            }
+        """)
+        self.setLayout(QVBoxLayout())
+        self.layout().setContentsMargins(10, 10, 10, 10)
+        self.layout().setSpacing(10)
+
+class StyledExcelReaderApp(QMainWindow):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("REPORT CR GENERATOR")
+        self.setGeometry(100, 100, 400, 300)
+        setup_window_style(self)
+
+    def initUI(self):
+        self.central_widget = QWidget()
+        self.setCentralWidget(self.central_widget)
+        
+        main_layout = QVBoxLayout(self.central_widget)
+        main_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout.setSpacing(15)
+
+        # Create container for the main content
+        container = StyledContainer()
+        main_layout.addWidget(container)
+
+        # Create folder selection button
+        self.browse_button = StyledPushButton("Browse", self)
+        container.layout().addWidget(self.browse_button)
+
+        # Create file list widget with custom styling
+        self.file_list = StyledListWidget(self)
+        container.layout().addWidget(self.file_list)
+        
+        # Add text box input
+        self.input_directory = StyledLineEdit(self)
+        self.input_directory.setPlaceholderText("Input Directory to upload script on ENM: e.g: /home/shared/username/sample_folder or ~/sample_folder")
+        container.layout().addWidget(self.input_directory)        
+
+        self.read_button = StyledPushButton("Generate Report", self)
+        container.layout().addWidget(self.read_button)
+
+        self.quit_button = StyledPushButton("Quit", self)
+        container.layout().addWidget(self.quit_button)
+
+        self.progress_bar = StyledProgressBar()
+        container.layout().addWidget(self.progress_bar)
+
+    def resizeEvent(self, event):
+        update_window_style(self)
+        super().resizeEvent(event) 

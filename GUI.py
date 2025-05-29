@@ -44,7 +44,8 @@ from lib.log_checker import check_logs_and_export_to_excel
 from lib.report_generator import ExcelReaderApp, process_single_log, CATEGORY_CHECKING, CATEGORY_CHECKING1, write_logs_to_excel
 from lib.style import (
     TransparentTextEdit, setup_window_style, update_window_style,
-    StyledPushButton, StyledLineEdit, StyledProgressBar, StyledLabel
+    StyledPushButton, StyledLineEdit, StyledProgressBar, StyledLabel,
+    StyledListWidget, StyledContainer
 )
 from lib.SSHTab import SSHTab
 
@@ -84,6 +85,7 @@ class ExcelReaderApp(QMainWindow):
         self.selected_file = None
         self.output_dir = None
         self.initUI()
+        setup_window_style(self)
 
     def initUI(self):
         self.setWindowTitle('Excel Reader')
@@ -92,27 +94,33 @@ class ExcelReaderApp(QMainWindow):
         # Create central widget and layout
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        layout = QVBoxLayout(central_widget)
+        main_layout = QVBoxLayout(central_widget)
+        main_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout.setSpacing(15)
+
+        # Create container for the main content
+        container = StyledContainer()
+        main_layout.addWidget(container)
 
         # Create folder selection button
-        self.folder_button = QPushButton('Select Folder')
+        self.folder_button = StyledPushButton('Select Folder')
         self.folder_button.clicked.connect(self.open_folder_dialog)
-        layout.addWidget(self.folder_button)
+        container.layout().addWidget(self.folder_button)
 
         # Create file list widget
-        self.file_list = QListWidget()
+        self.file_list = StyledListWidget()
         self.file_list.setSelectionMode(QAbstractItemView.SingleSelection)
-        layout.addWidget(self.file_list)
+        container.layout().addWidget(self.file_list)
 
         # Create process button
-        self.process_button = QPushButton('Process Selected File')
+        self.process_button = StyledPushButton('Generate CR Report')
         self.process_button.clicked.connect(self.read_selected_excel)
-        layout.addWidget(self.process_button)
+        container.layout().addWidget(self.process_button)
 
         # Create progress bar
-        self.progress_bar = QProgressBar()
+        self.progress_bar = StyledProgressBar()
         self.progress_bar.setRange(0, 100)
-        layout.addWidget(self.progress_bar)
+        container.layout().addWidget(self.progress_bar)
 
     def show_success_message(self, message):
         QMessageBox.information(self, 'Success', message)
@@ -171,6 +179,10 @@ class ExcelReaderApp(QMainWindow):
     def check_folder(self, output_dir):
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
+
+    def resizeEvent(self, event):
+        update_window_style(self)
+        super().resizeEvent(event)
 
 class SSHManager(QMainWindow):
     def __init__(self):

@@ -24,12 +24,11 @@ from PyQt5.QtWidgets import (
     QProgressBar,
     QAbstractItemView
 )
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QObject
+from PyQt5.QtGui import QFont, QTextCursor
 import openpyxl
-from openpyxl.styles import Font, PatternFill , Border, Side
+from openpyxl.styles import Font, PatternFill, Border, Side
 from openpyxl.utils.dataframe import dataframe_to_rows
-
-
-from PyQt5.QtCore import Qt, QThread, pyqtSignal,QObject
 import re
 import time as today
 from datetime import datetime
@@ -37,15 +36,13 @@ import time
 import zipfile
 from collections import Counter
 from queue import Queue
-from PyQt5.QtWidgets import QLineEdit  # Add this import statement
-
-
-from PyQt5.QtCore import QThread, pyqtSignal
-import os
-import re
-import time
 import mmap
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from .style import (
+    StyledExcelReaderApp, StyledPushButton, StyledLineEdit, 
+    StyledProgressBar, StyledLabel, StyledListWidget,
+    setup_window_style, update_window_style
+)
 
 # Move this function to top-level so it can be pickled by multiprocessing
 def process_single_log(args):
@@ -259,64 +256,24 @@ def CATEGORY_CHECKING(TAG_RESULT):
 
 
         
-class ExcelReaderApp(QMainWindow):
+class ExcelReaderApp(StyledExcelReaderApp):
     processing_finished = pyqtSignal()
     
     def __init__(self):
         super().__init__()
-        self.initUI()
         self.file_queue = Queue()  # Queue to store selected files
         self.append_log_data = []  # Initialize an empty list to store log data
         self.date_report = today.strftime('%Y%m%d_%H%M%S')
         self.excel_writer = None  # Store reference to Excel writer worker
-
-    def initUI(self):
-        self.setWindowTitle("REPORT CR GENERATOR")
-        self.setGeometry(100, 100, 400, 300)
-
-        self.central_widget = QWidget()
-        self.setCentralWidget(self.central_widget)
+        self.initUI()
         
-        layout = QVBoxLayout(self.central_widget)
-
-        placeholder_style = "font-style: italic;"
-        # self.input_directory = QLineEdit(self)
-        # # self.input_directory.setGeometry(X, Y, Length, Hight) 
-        # self.input_directory.setPlaceholderText("Input Directory to save CR_FOLDER on ENM: e.g: /home/username/")
-        
-        self.browse_button = QPushButton("Browse", self)
-        layout.addWidget(self.browse_button)
+        # Connect signals
         self.browse_button.clicked.connect(self.open_folder_dialog)
-
-        # self.file_list = QListWidget(self)
-        # # self.file_list = QListWidgetItem(self)
-        # layout.addWidget(self.file_list)
-
-        self.file_list = QListWidget(self)
-        self.file_list.setSelectionMode(QAbstractItemView.MultiSelection)  # Mengaktifkan modus seleksi multiple
-        ##self.file_list.setSelectionMode(QAbstractItemView.SingleSelection) 
-        layout.addWidget(self.file_list)
-        
-        # Add text box input
-        self.input_directory = QLineEdit(self)
-        self.input_directory.setPlaceholderText("Input Directory to upload script on ENM: e.g: /home/shared/username/sample_folder or ~/sample_folder")
-        layout.addWidget(self.input_directory)        
-
-
-        self.read_button = QPushButton("Generate Report", self)
-        layout.addWidget(self.read_button)
         self.read_button.clicked.connect(self.read_selected_excel)
-
-        self.quit_button = QPushButton("Quit", self)
-        layout.addWidget(self.quit_button)
         self.quit_button.clicked.connect(self.close)
 
-        self.progress_bar = QProgressBar()
-        layout.addWidget(self.progress_bar)
-
-
-        self.show()
-
+    def initUI(self):
+        super().initUI()  # Call parent's initUI to set up the styled widgets
 
     def show_success_message(self, message):
         success_box = QMessageBox()
