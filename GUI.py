@@ -21,7 +21,7 @@ from PyQt5.QtWidgets import (
     QListWidget, QAbstractItemView
 )
 from PyQt5.QtCore import QObject, QTimer, QThread, Qt, QEventLoop, QEvent, pyqtSignal
-from PyQt5.QtGui import QFont, QTextCursor
+from PyQt5.QtGui import QFont, QTextCursor, QPalette, QBrush, QPixmap, QPainter, QIcon, QImage, QColor, QLinearGradient, QPen
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Border, Side
 from openpyxl.utils.dataframe import dataframe_to_rows
@@ -42,6 +42,11 @@ from lib.workers import UploadWorker, DownloadLogWorker
 from lib.widgets import ConcheckToolsWidget, CRExecutorWidget
 from lib.log_checker import check_logs_and_export_to_excel
 from lib.report_generator import ExcelReaderApp, process_single_log, CATEGORY_CHECKING, CATEGORY_CHECKING1, write_logs_to_excel
+from lib.style import (
+    TransparentTextEdit, setup_window_style, update_window_style,
+    StyledPushButton, StyledLineEdit, StyledProgressBar, StyledLabel
+)
+from lib.SSHTab import SSHTab
 
 class WorkerThread(QThread):
     finished = pyqtSignal(str, list, str, str)
@@ -167,364 +172,13 @@ class ExcelReaderApp(QMainWindow):
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
 
-class SSHTab(QWidget):
-    def __init__(self, target, ssh_manager):
-        super().__init__()
-        self.target = target
-        self.ssh_manager = ssh_manager # Keep reference to the manager
-
-        self.layout = QVBoxLayout()
-
-        self.output_box = QTextEdit()
-        self.output_box.setReadOnly(True)
-        # Assuming QFont is imported in lib.widgets or keep here if only used here
-        font = QFont("Consolas", 10)
-        self.output_box.setFont(font)
-        self.output_box.setStyleSheet("background-color: black; color: #00FF00;")
-
-        # Batch command area
-        self.command_batch_RUN = QTextEdit()
-        self.command_batch_RUN.setPlaceholderText("Enter batch commands here, one per line...")
-        self.command_batch_RUN.setFixedHeight(80)
-        self.send_batch_button = QPushButton("Send Batch")
-        self.retry_upload_button = QPushButton("Retry Upload")
-
-        self.input_line = QLineEdit()
-        self.send_button = QPushButton("Send")
-        self.connect_button = QPushButton("Connect")
-        self.disconnect_button = QPushButton("Disconnect")
-        self.screen_button = QPushButton("Screen Sessions")
-
-        # Add a progress bar
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0, 100)
-        self.progress_bar.setVisible(False) # Start hidden
-
-        # Add batch area and button to layout
-        self.layout.addWidget(self.command_batch_RUN)
-        self.layout.addWidget(self.send_batch_button)
-        self.layout.addWidget(self.retry_upload_button)
-
-        button_layout = QHBoxLayout()
-        button_layout.addWidget(self.input_line)
-        button_layout.addWidget(self.send_button)
-        button_layout.addWidget(self.connect_button)
-        button_layout.addWidget(self.disconnect_button)
-        button_layout.addWidget(self.screen_button)
-
-        self.layout.addWidget(self.output_box)
-        self.layout.addLayout(button_layout)
-        self.layout.addWidget(self.progress_bar) # Add progress bar to layout
-        self.setLayout(self.layout)
-
-        self.ssh = None # InteractiveSSH instance
-        self.connected = False
-
-        # Worker and thread instances
-        self.upload_worker = None
-        self.upload_thread = None
-        self.download_worker = None
-        self.download_thread = None
-
-
-        self.send_button.clicked.connect(self.send_command)
-        self.input_line.returnPressed.connect(self.send_command)
-        self.connect_button.clicked.connect(self.connect_session)
-        self.disconnect_button.clicked.connect(self.disconnect_session)
-        self.screen_button.clicked.connect(self.open_screen_dialog)
-        self.send_batch_button.clicked.connect(self.send_batch_commands)
-        self.retry_upload_button.clicked.connect(self.retry_upload)
-
-        self.update_button_states()
-
-        self._output_buffer = []  # For batching output
-        self._output_batch_size = 20
-        self._output_timer = QTimer(self)
-        self._output_timer.setInterval(100)  # ms
-        self._output_timer.timeout.connect(self.flush_output)
-        self._waiting_for_prompt = False
-
-        # Command history
-        self._command_history = []
-        self._history_index = -1
-
-        # Install event filter for auto-focus on all widgets after creation
-        self._install_auto_focus_event_filter()
-
-    def _install_auto_focus_event_filter(self):
-        # Install event filter on self and all relevant widgets
-        widgets = [
-            self,
-            self.output_box,
-            self.command_batch_RUN,
-            self.input_line,
-            self.send_button,
-            self.connect_button,
-            self.disconnect_button,
-            self.screen_button,
-            self.send_batch_button,
-            self.retry_upload_button,
-        ]
-        for w in widgets:
-            w.installEventFilter(self)
-
-    def eventFilter(self, obj, event):
-        # Command history navigation in input_line
-        if obj == self.input_line and event.type() == QEvent.KeyPress:
-            if event.key() == Qt.Key_Up:
-                if self._command_history and self._history_index > 0:
-                    self._history_index -= 1
-                    self.input_line.setText(self._command_history[self._history_index])
-                    self.input_line.setCursorPosition(len(self.input_line.text()))
-                return True
-            elif event.key() == Qt.Key_Down:
-                if self._command_history and self._history_index < len(self._command_history) - 1:
-                    self._history_index += 1
-                    self.input_line.setText(self._command_history[self._history_index])
-                    self.input_line.setCursorPosition(len(self.input_line.text()))
-                elif self._history_index == len(self._command_history) - 1:
-                    self._history_index += 1
-                    self.input_line.clear()
-                return True
-            else:
-                # Reset history index on normal typing
-                self._history_index = len(self._command_history)
-        # Auto-focus input_line on any key press in the tab or its widgets
-        if event.type() == QEvent.KeyPress:
-            # Check if the source of the event is the batch command text edit
-            if obj == self.command_batch_RUN:
-                return super().eventFilter(obj, event) # Let batch command handle its own key press
-
-            if not self.input_line.hasFocus():
-                self.input_line.setFocus()
-        return super().eventFilter(obj, event)
-
-
-    def connect_session(self):
-        if not self.connected:
-            self.append_output(f"Connecting to {self.target['session_name']}...")
-            self.append_output("Waiting for prompt...")
-            self._waiting_for_prompt = True
-            # Use the InteractiveSSH class from lib.ssh
-            self.ssh = InteractiveSSH(**self.target)
-            self.ssh.output_received.connect(self.append_output)
-            self.ssh.start()
-            self.connected = True
-            self.update_button_states()
-
-    def disconnect_session(self):
-        if self.connected and self.ssh:
-            # Safely disconnect signals before closing SSH session
-            try:
-                self.ssh.output_received.disconnect(self.append_output)
-            except TypeError:
-                pass # Signal was not connected or already disconnected
-
-            # Check if _write_log exists before calling it
-            if hasattr(self.ssh, '_write_log'):
-                 self.ssh._write_log("Disconnected") # Use internal log method if available
-            else:
-                 print("Warning: _write_log not found on ssh instance.") # For debugging
-
-            self.ssh.close()
-            self.connected = False
-            self.update_button_states()
-            self.append_output(f"Disconnected from {self.target['session_name']}.")
-
-
-    def update_button_states(self):
-        self.connect_button.setEnabled(not self.connected)
-        self.disconnect_button.setEnabled(self.connected)
-        self.screen_button.setEnabled(self.connected)
-
-    def append_output(self, text):
-        # If waiting for prompt, clear the waiting message on first real output
-        if self._waiting_for_prompt:
-            # Remove 'Waiting for prompt...' from the end if present
-            cursor = self.output_box.textCursor()
-            cursor.movePosition(QTextCursor.End)
-            self.output_box.setTextCursor(cursor)
-            content = self.output_box.toPlainText()
-            # Check both with and without trailing newline
-            if content.endswith("Waiting for prompt...\n"):
-                 new_content = content[:-len("Waiting for prompt...\n")]
-                 self.output_box.setPlainText(new_content)
-            elif content.endswith("Waiting for prompt..."):
-                 new_content = content[:-len("Waiting for prompt...")]
-                 self.output_box.setPlainText(new_content)
-
-            self._waiting_for_prompt = False
-
-        self._output_buffer.append(text)
-        if len(self._output_buffer) >= self._output_batch_size:
-            self.flush_output()
-        else:
-            if not self._output_timer.isActive():
-                self._output_timer.start()
-
-    def flush_output(self):
-        if self._output_buffer:
-            self.output_box.moveCursor(QTextCursor.End)
-            self.output_box.insertPlainText('\n'.join(self._output_buffer) + '\n')
-            self.output_box.moveCursor(QTextCursor.End)
-            self._output_buffer.clear()
-            # QApplication.processEvents() # Removed to avoid potential re-entrancy issues
-        self._output_timer.stop()
-
-    def send_command(self):
-        cmd = self.input_line.text()
-        if self.ssh:
-            # Always send, even if empty (just ENTER)
-            self.ssh.send_command(cmd)
-            # Only store non-empty commands in history
-            if cmd.strip():
-                if not self._command_history or self._command_history[-1] != cmd:
-                    self._command_history.append(cmd)
-            self._history_index = len(self._command_history)
-            self.input_line.clear() # Clear the input line after sending
-            self.flush_output() # Immediately flush output buffer after sending command
-
-    def open_screen_dialog(self):
-        if self.ssh:
-            # Use the ScreenSelectionDialog from lib.dialogs
-            dlg = ScreenSelectionDialog(self.ssh, self)
-            dlg.exec_()
-
-    # This method seems to be a placeholder, actual handling is in SSHManager
-    def handle_upload_request(self, selected_folders, selected_sessions):
-        print("SSHTab received upload request (delegating to manager)")
-
-
-    def perform_sftp_and_remote_commands(self, selected_folders, selected_mode, selected_sessions=None, mobatch_paralel=70, mobatch_timeout=30, assigned_nodes=None, mobatch_execution_mode="REGULAR_MOBATCH"):
-        # This method is called by SSHManager to initiate upload on a specific tab
-        print(f"SSHTab {self.target['session_name']} performing SFTP and remote commands.")
-        self.append_output("Preparing for SFTP upload and remote commands...")
-        self.progress_bar.setValue(0)
-        self.progress_bar.setVisible(True)
-
-        # Clean up existing upload worker/thread if they exist
-        self.cleanup_upload_thread()
-
-        self.upload_thread = QThread()
-        # Pass necessary parameters to the UploadWorker, including var_FOLDER_CR from ssh_manager
-        self.upload_worker = UploadWorker(
-            self.ssh.client,
-            self.target,
-            selected_folders,
-            selected_mode,
-            selected_sessions,
-            mobatch_paralel,
-            mobatch_timeout,
-            assigned_nodes,
-            mobatch_execution_mode,
-            var_FOLDER_CR=self.ssh_manager.var_FOLDER_CR # Get from manager
-        )
-        self.upload_worker.moveToThread(self.upload_thread)
-
-        # Connect signals and slots
-        self.upload_thread.started.connect(self.upload_worker.run)
-        self.upload_worker.progress.connect(self.update_progress_bar)
-        self.upload_worker.output.connect(self.append_output)
-        self.upload_worker.completed.connect(self.upload_finished)
-        self.upload_worker.error.connect(self.upload_finished)
-
-        # Connect cleanup AFTER upload_finished to ensure messages are emitted first
-        self.upload_worker.completed.connect(self.cleanup_upload_thread)
-        self.upload_worker.error.connect(self.cleanup_upload_thread)
-
-        # Connect worker and thread deletion
-        self.upload_worker.completed.connect(self.upload_worker.deleteLater)
-        self.upload_worker.error.connect(self.upload_worker.deleteLater)
-        self.upload_thread.finished.connect(self.upload_thread.deleteLater)
-
-        # Start the thread
-        self.upload_thread.start()
-
-    def cleanup_upload_thread(self):
-        if self.upload_thread and self.upload_thread.isRunning():
-            print(f"Cleaning up upload thread for {self.target['session_name']}...")
-            if self.upload_worker:
-                 self.upload_worker.stop() # Signal the worker to stop
-            self.upload_thread.quit()
-            self.upload_thread.wait(2000) # Wait up to 2 seconds
-            if self.upload_thread.isRunning():
-                 print(f"Upload thread for {self.target['session_name']} did not stop. Terminating.")
-                 self.upload_thread.terminate()
-                 self.upload_thread.wait() # Wait for termination
-
-        self.upload_worker = None
-        self.upload_thread = None
-        self.progress_bar.setVisible(False) # Hide progress bar
-
-
-    def update_progress_bar(self, value):
-        self.progress_bar.setValue(value)
-
-    def upload_finished(self, message):
-        self.append_output(message)
-        # Progress bar visibility is handled in cleanup_upload_thread
-
-        # Show error in a message box if upload failed
-        if 'failed' in message.lower() or 'error' in message.lower():
-            QMessageBox.critical(self, "Upload Error", message)
-        else:
-            # On success, populate the batch run textarea with cd and ls commands
-            # Use var_FOLDER_CR and var_SCREEN_CR from ssh_manager
-            remote_base_dir = f"/home/shared/{self.target['username']}/{self.ssh_manager.var_FOLDER_CR}"
-            ENM_SERVER = self.target['session_name']
-            # Use CMD_BATCH_SEND_FORMAT from ssh_manager
-            self.command_batch_RUN.setPlainText(self.ssh_manager.CMD_BATCH_SEND_FORMAT.format(remote_base_dir=remote_base_dir, ENM_SERVER=ENM_SERVER, screen_session=self.ssh_manager.var_SCREEN_CR))
-            # Automatically send the batch commands
-            self.send_batch_commands()
-        # No need to clean up worker/thread here; handled by cleanup_upload_thread
-
-    def send_batch_commands(self):
-        if not self.ssh or not self.connected:
-            self.append_output("[ERROR] Not connected.")
-            return
-        commands = self.command_batch_RUN.toPlainText().splitlines()
-        for line in commands:
-            cmd = line.strip()
-            if cmd:
-                self.ssh.send_command(cmd)
-
-    def retry_upload(self):
-        # This method needs to know the last successful upload parameters.
-        # This requires storing the parameters when perform_sftp_and_remote_commands is called.
-        # For simplicity now, I'll just show the structure assuming parameters are available.
-        self.append_output("[RETRY] Functionality not fully implemented yet. Requires storing last upload parameters.")
-        return # Prevent execution for now
-
-        # Example structure if parameters were stored:
-        # if not hasattr(self, '_last_upload_params') or not self._last_upload_params:
-        #     self.append_output("[RETRY] No previous upload parameters found.")
-        #     return
-        #
-        # # Retrieve stored parameters
-        # selected_folders = self._last_upload_params['selected_folders']
-        # selected_mode = self._last_upload_params['selected_mode']
-        # selected_sessions = self._last_upload_params.get('selected_sessions')
-        # mobatch_paralel = self._last_upload_params.get('mobatch_paralel', 70)
-        # mobatch_timeout = self._last_upload_params.get('mobatch_timeout', 30)
-        # assigned_nodes = self._last_upload_params.get('assigned_nodes')
-        # mobatch_execution_mode = self._last_upload_params.get('mobatch_execution_mode', "REGULAR_MOBATCH")
-        #
-        # self.append_output(f"[RETRY] Retrying upload for {self.target['session_name']}...")
-        # self.perform_sftp_and_remote_commands(
-        #     selected_folders,
-        #     selected_mode,
-        #     selected_sessions=selected_sessions,
-        #     mobatch_paralel=mobatch_paralel,
-        #     mobatch_timeout=mobatch_timeout,
-        #     assigned_nodes=assigned_nodes,
-        #     mobatch_execution_mode=mobatch_execution_mode
-        # )
-
-
 class SSHManager(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("CR TOOLS by esptnnd")
+        
+        # Setup window styling
+        setup_window_style(self)
 
         # Load configuration from settings.json
         settings_path = os.path.join(os.path.dirname(__file__), 'settings.json')
@@ -593,17 +247,31 @@ class SSHManager(QMainWindow):
         # Show the TRUE CR Executor form initially
         self.show_cr_executor_true()
 
+    def resizeEvent(self, event):
+        # Update window styling when resized
+        update_window_style(self)
+        super().resizeEvent(event)
+
     def show_cr_executor_true(self):
         """Shows the TRUE CR Executor form."""
         self.stacked_widget.setCurrentWidget(self.cr_executor_widget_true)
+        # Ensure background stays behind
+        if hasattr(self, 'background_label'):
+            self.background_label.lower()
 
     def show_cr_executor_dtac(self):
         """Shows the DTAC CR Executor form."""
         self.stacked_widget.setCurrentWidget(self.cr_executor_widget_dtac)
+        # Ensure background stays behind
+        if hasattr(self, 'background_label'):
+            self.background_label.lower()
 
     def show_concheck_tools_form(self):
         """Shows the Excel Reader form."""
         self.stacked_widget.setCurrentWidget(self.excel_reader_app)
+        # Ensure background stays behind
+        if hasattr(self, 'background_label'):
+            self.background_label.lower()
 
     def get_current_cr_executor_widget(self):
         """Returns the currently active CR Executor widget."""
@@ -669,46 +337,6 @@ class SSHManager(QMainWindow):
             self.cleanup_cr_executor_tabs(self.cr_executor_widget_dtac)
         print("Accepting close event.")
         event.accept()
-
-    def cleanup_cr_executor_tabs(self, widget):
-        """Clean up tabs in the specified CR Executor widget."""
-        if widget:
-            tabs_to_close = widget.ssh_tabs[:]
-            for tab in tabs_to_close:
-                index = widget.tabs.indexOf(tab)
-                if index != -1:
-                    self.close_ssh_tab(index, widget)
-
-    def close_ssh_tab(self, index, widget=None):
-        """Close a tab at the specified index in the given widget."""
-        if widget is None:
-            widget = self.get_current_cr_executor_widget()
-        
-        if widget and index < widget.tabs.count():
-            tab_to_close = widget.tabs.widget(index)
-            if isinstance(tab_to_close, SSHTab):
-                tab_to_close.disconnect_session()
-                tab_to_close.cleanup_upload_thread()
-                if hasattr(tab_to_close, 'download_thread') and tab_to_close.download_thread is not None:
-                    if tab_to_close.download_thread.isRunning():
-                        tab_to_close.append_output("Cleaning up download thread...")
-                        if hasattr(tab_to_close.download_worker, 'stop'):
-                            tab_to_close.download_worker.stop()
-                        tab_to_close.download_thread.quit()
-                        tab_to_close.download_thread.wait(2000)
-                        if tab_to_close.download_thread.isRunning():
-                            print(f"Download thread for {tab_to_close.target['session_name']} did not stop. Terminating.")
-                            tab_to_close.download_thread.terminate()
-                            tab_to_close.download_thread.wait()
-                        tab_to_close.download_thread = None
-                        tab_to_close.download_worker = None
-                        tab_to_close.progress_bar.setVisible(False)
-
-                widget.tabs.removeTab(index)
-                if tab_to_close in widget.ssh_tabs:
-                    widget.ssh_tabs.remove(tab_to_close)
-        else:
-            print(f"Warning: close_ssh_tab called with invalid index {index} or no active widget.")
 
     def profile_tab_change(self, index):
         import time
@@ -849,108 +477,208 @@ class SSHManager(QMainWindow):
         dlg.exec_()
 
     def handle_download_log_request(self, selected_sessions, download_path):
-        # Get the current targets from the active CR Executor widget
-        current_targets = []
-        if self.get_current_cr_executor_widget():
-             current_targets = self.get_current_cr_executor_widget().targets
+        """Handle download log request with improved error handling and cleanup."""
+        try:
+            # Get the current targets from the active CR Executor widget
+            current_widget = self.get_current_cr_executor_widget()
+            if not current_widget:
+                QMessageBox.warning(self, "No Active Widget", "No active CR Executor widget found.")
+                return
 
-        # Clear the 02_DOWNLOAD directory before starting new downloads
-        download_dir = os.path.join(os.path.dirname(__file__), '02_DOWNLOAD')
-        if os.path.exists(download_dir):
-            print(f"Clearing directory: {download_dir}")
-            for item in os.listdir(download_dir):
-                item_path = os.path.join(download_dir, item)
+            # Clear the 02_DOWNLOAD directory before starting new downloads
+            download_dir = os.path.join(os.path.dirname(__file__), '02_DOWNLOAD')
+            if os.path.exists(download_dir):
+                print(f"Clearing directory: {download_dir}")
                 try:
-                    if os.path.isfile(item_path) or os.path.islink(item_path):
-                        os.unlink(item_path) # remove file or link
-                    elif os.path.isdir(item_path):
-                        # Use shutil.rmtree for directories
-                        import shutil
-                        shutil.rmtree(item_path) # remove directory
+                    for item in os.listdir(download_dir):
+                        item_path = os.path.join(download_dir, item)
+                        try:
+                            if os.path.isfile(item_path) or os.path.islink(item_path):
+                                os.unlink(item_path)
+                            elif os.path.isdir(item_path):
+                                import shutil
+                                shutil.rmtree(item_path)
+                        except Exception as e:
+                            print(f"Warning: Failed to remove {item_path}: {e}")
                 except Exception as e:
-                    print(f"Error removing {item_path}: {e}")
+                    print(f"Warning: Error accessing download directory: {e}")
 
-        # Defensive: Clean up any previous download threads before starting new ones
-        if self.get_current_cr_executor_widget():
-            for tab in self.get_current_cr_executor_widget().ssh_tabs:
+            # Clean up any existing download threads
+            self._cleanup_existing_downloads(current_widget)
+
+            # Track downloads and setup completion handler
+            self._pending_downloads = len(selected_sessions)
+            self._download_errors = []  # Track any errors that occur
+
+            def on_download_finished():
+                """Handle download completion and check results."""
+                self._pending_downloads -= 1
+                if self._pending_downloads == 0:
+                    try:
+                        if self._download_errors:
+                            error_msg = "\n".join(self._download_errors)
+                            QMessageBox.warning(self, "Download Warnings", 
+                                f"Some downloads completed with warnings:\n{error_msg}")
+                        
+                        # Run the check and export
+                        check_logs_and_export_to_excel(self)
+                    except Exception as e:
+                        QMessageBox.critical(self, "Check Export Error", 
+                            f"Failed to export check: {str(e)}")
+
+            # Start downloads for each selected session
+            for session_name in selected_sessions:
+                self._start_download_for_session(session_name, download_path, on_download_finished)
+
+        except Exception as e:
+            QMessageBox.critical(self, "Download Error", 
+                f"An unexpected error occurred during download setup: {str(e)}")
+
+    def _cleanup_existing_downloads(self, widget):
+        """Clean up any existing download threads in the widget."""
+        if not widget:
+            return
+
+        for tab in widget.ssh_tabs:
+            try:
                 if hasattr(tab, 'download_thread') and tab.download_thread is not None:
                     if tab.download_thread.isRunning():
                         tab.append_output("Cleaning up previous download thread...")
-                        # Assuming download_worker has a stop method
-                        if hasattr(tab.download_worker, 'stop'):
-                             tab.download_worker.stop()
-                        tab.download_thread.quit()
-                        tab.download_thread.wait(2000) # Wait for thread to finish
-                        if tab.download_thread.isRunning():
-                            print(f"Download thread for {tab.target['session_name']} did not stop. Terminating.")
-                            tab.download_thread.terminate()
-                            tab.download_thread.wait()
-                        tab.download_thread = None
-                        tab.download_worker = None
-                        tab.progress_bar.setVisible(False)
+                        
+                        # Safely stop the worker
+                        if hasattr(tab, 'download_worker') and tab.download_worker is not None:
+                            try:
+                                if hasattr(tab.download_worker, 'stop'):
+                                    tab.download_worker.stop()
+                            except RuntimeError:
+                                print(f"Worker already deleted for {tab.target['session_name']}")
+                            except Exception as e:
+                                print(f"Error stopping worker for {tab.target['session_name']}: {e}")
+                        
+                        # Quit and wait for thread
+                        try:
+                            tab.download_thread.quit()
+                            if not tab.download_thread.wait(2000):  # Wait up to 2 seconds
+                                print(f"Download thread for {tab.target['session_name']} did not stop. Terminating.")
+                                tab.download_thread.terminate()
+                                tab.download_thread.wait()
+                        except Exception as e:
+                            print(f"Error stopping thread for {tab.target['session_name']}: {e}")
+            except Exception as e:
+                print(f"Error during cleanup for {tab.target['session_name']}: {e}")
+            finally:
+                # Always clear references
+                tab.download_thread = None
+                tab.download_worker = None
+                tab.progress_bar.setVisible(False)
 
-        # Track how many downloads are pending
-        self._pending_downloads = len(selected_sessions)
-        # _download_tabs was used for cleanup tracking, can be removed or kept if needed for other purposes.
-        # self._download_tabs = [] # Keep track of tabs involved in download
+    def _start_download_for_session(self, session_name, download_path, on_download_finished):
+        """Start download for a specific session with error handling."""
+        tab = self.find_ssh_tab(session_name)
+        if not tab:
+            self._download_errors.append(f"Session {session_name} not found")
+            return
 
-        def on_download_finished():
-            self._pending_downloads -= 1
-            if self._pending_downloads == 0:
-                # All downloads finished, run the check and export
-                try:
-                    # Use the check_logs_and_export_to_excel function from lib.log_checker
-                    check_logs_and_export_to_excel(self) # Pass self as parent for QMessageBox
-                    # Removed the QMessageBox here as it's now handled inside check_logs_and_export_to_excel
-                except Exception as e:
-                    QMessageBox.critical(self, "Check Export Error", f"Failed to export check: {e}")
-
-        # For each selected session, start a download worker
-        for session_name in selected_sessions:
-            # Find the correct SSHTab within the CRExecutorWidget
-            tab = self.find_ssh_tab(session_name)
-            if not tab:
-                continue # Skip if tab not found (shouldn't happen if selected from dialog)
-            # Use DownloadLogWorker from lib.workers
-            worker = DownloadLogWorker(tab.target, download_path, self.var_FOLDER_CR) # Pass self.var_FOLDER_CR
+        try:
+            # Create and setup worker
+            worker = DownloadLogWorker(tab.target, download_path, self.var_FOLDER_CR)
             thread = QThread()
             worker.moveToThread(thread)
+
+            # Connect signals
             thread.started.connect(worker.run)
             worker.output.connect(tab.append_output)
             worker.completed.connect(tab.append_output)
-            worker.error.connect(tab.append_output)
+            worker.error.connect(lambda msg: self._handle_download_error(tab, msg))
             worker.progress.connect(tab.update_progress_bar)
-            # Show progress bar at start
+
+            # Show progress bar
             tab.progress_bar.setValue(0)
             tab.progress_bar.setVisible(True)
 
-            # Store thread and worker on the tab for cleanup
+            # Store references
             tab.download_thread = thread
             tab.download_worker = worker
-            # self._download_tabs.append(tab) # Add tab to tracking list
 
-            def cleanup(tab=tab): # Use default argument to capture current tab
-                if hasattr(tab, 'download_thread') and tab.download_thread is not None:
-                    if tab.download_thread.isRunning():
-                        tab.download_thread.quit()
-                        tab.download_thread.wait() # Wait for thread to finish
+            def cleanup():
+                """Clean up worker and thread resources."""
+                try:
+                    if hasattr(tab, 'download_thread') and tab.download_thread is not None:
+                        if tab.download_thread.isRunning():
+                            tab.download_thread.quit()
+                            tab.download_thread.wait()
+                except Exception as e:
+                    print(f"Error during cleanup for {session_name}: {e}")
+                finally:
                     tab.download_thread = None
                     tab.download_worker = None
                     tab.progress_bar.setVisible(False)
 
-            # Connect signals using lambda to pass the specific tab instance
-            # Connect cleanup and deletion
-            worker.completed.connect(lambda: cleanup(tab))
-            worker.error.connect(lambda: cleanup(tab))
+            # Connect cleanup and deletion signals
+            worker.completed.connect(cleanup)
+            worker.error.connect(cleanup)
             worker.completed.connect(worker.deleteLater)
             worker.error.connect(worker.deleteLater)
             thread.finished.connect(thread.deleteLater)
 
-            # Connect the download finished signal to the overall handler
+            # Connect completion handler
             worker.completed.connect(on_download_finished)
             worker.error.connect(on_download_finished)
 
+            # Start the download
             thread.start()
+
+        except Exception as e:
+            error_msg = f"Failed to start download for {session_name}: {str(e)}"
+            self._download_errors.append(error_msg)
+            print(error_msg)
+            QMessageBox.warning(self, "Download Error", error_msg)
+
+    def _handle_download_error(self, tab, error_msg):
+        """Handle download error with proper logging and user feedback."""
+        self._download_errors.append(f"Error in {tab.target['session_name']}: {error_msg}")
+        tab.append_output(f"[ERROR] {error_msg}")
+        print(f"Download error for {tab.target['session_name']}: {error_msg}")
+
+    def cleanup_cr_executor_tabs(self, widget):
+        """Clean up tabs in the specified CR Executor widget."""
+        if widget:
+            tabs_to_close = widget.ssh_tabs[:]
+            for tab in tabs_to_close:
+                index = widget.tabs.indexOf(tab)
+                if index != -1:
+                    self.close_ssh_tab(index, widget)
+
+    def close_ssh_tab(self, index, widget=None):
+        """Close a tab at the specified index in the given widget."""
+        if widget is None:
+            widget = self.get_current_cr_executor_widget()
+        
+        if widget and index < widget.tabs.count():
+            tab_to_close = widget.tabs.widget(index)
+            if isinstance(tab_to_close, SSHTab):
+                tab_to_close.disconnect_session()
+                tab_to_close.cleanup_upload_thread()
+                if hasattr(tab_to_close, 'download_thread') and tab_to_close.download_thread is not None:
+                    if tab_to_close.download_thread.isRunning():
+                        tab_to_close.append_output("Cleaning up download thread...")
+                        if hasattr(tab_to_close.download_worker, 'stop'):
+                            tab_to_close.download_worker.stop()
+                        tab_to_close.download_thread.quit()
+                        tab_to_close.download_thread.wait(2000)
+                        if tab_to_close.download_thread.isRunning():
+                            print(f"Download thread for {tab_to_close.target['session_name']} did not stop. Terminating.")
+                            tab_to_close.download_thread.terminate()
+                            tab_to_close.download_thread.wait()
+                        tab_to_close.download_thread = None
+                        tab_to_close.download_worker = None
+                        tab_to_close.progress_bar.setVisible(False)
+
+                widget.tabs.removeTab(index)
+                if tab_to_close in widget.ssh_tabs:
+                    widget.ssh_tabs.remove(tab_to_close)
+        else:
+            print(f"Warning: close_ssh_tab called with invalid index {index} or no active widget.")
 
 
 if __name__ == "__main__":

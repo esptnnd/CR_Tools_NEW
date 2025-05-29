@@ -120,4 +120,4 @@ def check_logs_and_export_to_excel(parent=None):
     print(f"Exported check results to {out_path}")
     # Display a success message box after export
     if QApplication.instance() is not None:
-        QMessageBox.information(parent, "Export Complete", f"Log check completed and exported to {out_path}")
+        QMessageBox.information(parent, "Export Complete", f"Log check completed and exported to {out_path}\n DONT FORGET TO SAVE THE LOG BEFORE DOWNLOAD NEW LOGS")
