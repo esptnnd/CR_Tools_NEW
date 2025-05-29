@@ -2,25 +2,160 @@ import sys
 import os
 import json
 import random
-
-# Import necessary components from PyQt5
+import pandas as pd
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QTabWidget, QWidget,
     QVBoxLayout, QTextEdit, QLineEdit, QPushButton, QHBoxLayout,
     QMessageBox, QProgressBar, QDialog,
-    QMenuBar, QAction, QStackedWidget, QLabel # Ensure these are included
+    QMenuBar, QAction, QStackedWidget, QLabel, QFileDialog,
+    QListWidget, QAbstractItemView
 )
-from PyQt5.QtCore import QObject, QTimer, QThread, Qt, QEventLoop, QEvent # Added QEventLoop, Qt, QEvent
-from PyQt5.QtGui import QFont, QTextCursor # Moved import here
+from PyQt5.QtCore import QObject, QTimer, QThread, Qt, QEventLoop, QEvent, pyqtSignal
+from PyQt5.QtGui import QFont, QTextCursor
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Border, Side
+from openpyxl.utils.dataframe import dataframe_to_rows
+import re
+import time
+from datetime import datetime
+import zipfile
+from collections import Counter
+from queue import Queue
+import mmap
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 # Import modules from the lib directory
 from lib.concheck import run_concheck
-from lib.ssh import InteractiveSSH # Assuming InteractiveSSH is needed by SSHTab
-from lib.dialogs import ScreenSelectionDialog, MultiConnectDialog, UploadCRDialog, DownloadLogDialog # Import dialog classes
-from lib.workers import UploadWorker, DownloadLogWorker # Import worker classes
-from lib.widgets import ConcheckToolsWidget, CRExecutorWidget # Import ConcheckToolsWidget and CRExecutorWidget
-from lib.log_checker import check_logs_and_export_to_excel # Import the log checking function
+from lib.ssh import InteractiveSSH
+from lib.dialogs import ScreenSelectionDialog, MultiConnectDialog, UploadCRDialog, DownloadLogDialog
+from lib.workers import UploadWorker, DownloadLogWorker
+from lib.widgets import ConcheckToolsWidget, CRExecutorWidget
+from lib.log_checker import check_logs_and_export_to_excel
+from lib.report_generator import ExcelReaderApp, process_single_log, CATEGORY_CHECKING, CATEGORY_CHECKING1, write_logs_to_excel
 
+class WorkerThread(QThread):
+    finished = pyqtSignal(str, list, str, str)
+    overall_progress = pyqtSignal(int)
+
+    def __init__(self, file_path, selected_file, output_dir):
+        super().__init__()
+        self.file_path = file_path
+        self.selected_file = selected_file
+        self.output_dir = output_dir
+
+    def run(self):
+        folder_path = os.path.join(self.file_path, self.selected_file)
+        log_files = [f for f in os.listdir(folder_path) if f.lower().endswith('.log')]
+        total_files = len(log_files)
+
+        log_data = []
+        args_list = [(f, folder_path, self.selected_file) for f in log_files]
+
+        with ProcessPoolExecutor() as executor:
+            futures = {executor.submit(process_single_log, args): args[0] for args in args_list}
+            for i, future in enumerate(as_completed(futures), 1):
+                result = future.result()
+                log_data.extend(result)
+                self.overall_progress.emit(int((i / total_files) * 100))
+
+        self.finished.emit(self.file_path, log_data, self.selected_file, self.output_dir)
+
+class ExcelReaderApp(QMainWindow):
+    processing_finished = pyqtSignal()
+
+    def __init__(self):
+        super().__init__()
+        self.file_path = None
+        self.selected_file = None
+        self.output_dir = None
+        self.initUI()
+
+    def initUI(self):
+        self.setWindowTitle('Excel Reader')
+        self.setGeometry(100, 100, 800, 600)
+
+        # Create central widget and layout
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        layout = QVBoxLayout(central_widget)
+
+        # Create folder selection button
+        self.folder_button = QPushButton('Select Folder')
+        self.folder_button.clicked.connect(self.open_folder_dialog)
+        layout.addWidget(self.folder_button)
+
+        # Create file list widget
+        self.file_list = QListWidget()
+        self.file_list.setSelectionMode(QAbstractItemView.SingleSelection)
+        layout.addWidget(self.file_list)
+
+        # Create process button
+        self.process_button = QPushButton('Process Selected File')
+        self.process_button.clicked.connect(self.read_selected_excel)
+        layout.addWidget(self.process_button)
+
+        # Create progress bar
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        layout.addWidget(self.progress_bar)
+
+    def show_success_message(self, message):
+        QMessageBox.information(self, 'Success', message)
+
+    def show_error_message(self, message):
+        QMessageBox.critical(self, 'Error', message)
+
+    def update_overall_progress(self, value):
+        self.progress_bar.setValue(value)
+
+    def on_thread_finished(self, file_path, log_data, selected_file, output_dir):
+        try:
+            excel_filename = os.path.join(output_dir, f"{selected_file}_report.xlsx")
+            write_logs_to_excel(log_data, excel_filename, selected_file)
+            self.show_success_message(f"Processing completed. Report saved to {excel_filename}")
+        except Exception as e:
+            self.show_error_message(f"Error saving report: {str(e)}")
+        finally:
+            self.progress_bar.setValue(100)
+            self.processing_finished.emit()
+
+    def open_folder_dialog(self):
+        folder = QFileDialog.getExistingDirectory(self, "Select Folder")
+        if folder:
+            self.file_path = folder
+            self.populate_file_list()
+
+    def populate_file_list(self):
+        if not self.file_path:
+            return
+
+        self.file_list.clear()
+        try:
+            for item in os.listdir(self.file_path):
+                if os.path.isdir(os.path.join(self.file_path, item)):
+                    self.file_list.addItem(item)
+        except Exception as e:
+            self.show_error_message(f"Error reading folder: {str(e)}")
+
+    def read_selected_excel(self):
+        selected_items = self.file_list.selectedItems()
+        if not selected_items:
+            self.show_error_message("Please select a file first")
+            return
+
+        self.selected_file = selected_items[0].text()
+        self.output_dir = os.path.join(self.file_path, "reports")
+        self.check_folder(self.output_dir)
+
+        # Start processing in a separate thread
+        self.worker = WorkerThread(self.file_path, self.selected_file, self.output_dir)
+        self.worker.finished.connect(self.on_thread_finished)
+        self.worker.overall_progress.connect(self.update_overall_progress)
+        self.worker.start()
+
+    def check_folder(self, output_dir):
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
 
 class SSHTab(QWidget):
     def __init__(self, target, ssh_manager):
@@ -429,12 +564,12 @@ class SSHManager(QMainWindow):
         # Create separate widgets for TRUE and DTAC modes
         self.cr_executor_widget_true = CRExecutorWidget(self.ssh_targets_true, self, session_type="TRUE")
         self.cr_executor_widget_dtac = CRExecutorWidget(self.ssh_targets_dtac, self, session_type="DTAC")
-        self.concheck_tools_widget = ConcheckToolsWidget()
+        self.excel_reader_app = ExcelReaderApp()
 
         # Add widgets to the stacked widget
         self.stacked_widget.addWidget(self.cr_executor_widget_true)
         self.stacked_widget.addWidget(self.cr_executor_widget_dtac)
-        self.stacked_widget.addWidget(self.concheck_tools_widget)
+        self.stacked_widget.addWidget(self.excel_reader_app)
 
         # Connect menu actions to switch widgets
         self.action_cr_executor_true.triggered.connect(self.show_cr_executor_true)
@@ -457,8 +592,8 @@ class SSHManager(QMainWindow):
         self.stacked_widget.setCurrentWidget(self.cr_executor_widget_dtac)
 
     def show_concheck_tools_form(self):
-        """Shows the Concheck Tools form."""
-        self.stacked_widget.setCurrentWidget(self.concheck_tools_widget)
+        """Shows the Excel Reader form."""
+        self.stacked_widget.setCurrentWidget(self.excel_reader_app)
 
     def get_current_cr_executor_widget(self):
         """Returns the currently active CR Executor widget."""
