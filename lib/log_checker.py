@@ -10,6 +10,7 @@
 import os
 import pandas as pd
 import zipfile
+import re
 from PyQt5.QtWidgets import QApplication, QProgressDialog, QMessageBox # Needed for UI elements
 
 
@@ -21,6 +22,7 @@ def check_logs_and_export_to_excel(parent=None):
     download_dir = os.path.join(os.path.dirname(__file__), '..', '02_DOWNLOAD') # Adjust path to 02_DOWNLOAD
     zip_files = [fname for fname in os.listdir(download_dir) if fname.lower().endswith('.zip')]
     result_rows = []
+    result_alarm_check = []  # New list for alarm data
     progress = None
 
     # Identify non-empty zip files
@@ -99,6 +101,38 @@ def check_logs_and_export_to_excel(parent=None):
                                 'REMARK': remark,
                                 'Count': len(lines)
                             })
+
+                            # Check for alarm logs in 99_CONCEK2 folder
+                            if len(parts) == 3 and parts[0] == 'LOG' and folder == '99_CONCEK2' and parts[2].endswith('.log'):
+                                alarm_section = False
+                                for line in lines:
+                                    if '####LOG_Alarm' in line:
+                                        alarm_section = True
+                                        continue
+                                    elif '####END_LOG_Alarm' in line:
+                                        alarm_section = False
+                                        continue
+                                    
+                                    if alarm_section and line.strip() and ';' in line:
+                                        try:
+                                            # Split line by semicolon
+                                            parts = line.split(';')
+                                            if len(parts) >= 7 and parts[0] != "Date" and parts[1] != "Time":  # Skip header row and ensure we have all required fields
+                                                result_alarm_check.append({
+                                                    'FILE': fname,
+                                                    'FOLDER': folder,
+                                                    'NODENAME': nodename,
+                                                    'Date': parts[0],
+                                                    'Time': parts[1],
+                                                    'Severity': parts[2],
+                                                    'Problem': parts[3],
+                                                    'Object': parts[4],
+                                                    'Cause': parts[5],
+                                                    'AdditionalText': parts[6]
+                                                })
+                                        except Exception as alarm_err:
+                                            print(f"Error processing alarm line in {member}: {alarm_err}")
+
                         except Exception as open_err:
                             print(f"Error opening {member} in {fname}: {open_err}")
         except zipfile.BadZipFile:
@@ -114,10 +148,25 @@ def check_logs_and_export_to_excel(parent=None):
 
     if progress is not None:
         progress.close()
+
+    # Create DataFrames
     df = pd.DataFrame(result_rows, columns=['FILE', 'FOLDER', 'NODENAME', 'REMARK', 'Count'])
     out_path = os.path.join(download_dir, 'Check.xlsx')
-    df.to_excel(out_path, index=False)
+    
+    # Export to Excel with multiple sheets
+    with pd.ExcelWriter(out_path, engine='openpyxl') as writer:
+        df.to_excel(writer, sheet_name='CHECK', index=False)
+        if result_alarm_check:
+            df_alarm = pd.DataFrame(result_alarm_check)
+            df_alarm.to_excel(writer, sheet_name='ALARM', index=False)
+
     print(f"Exported check results to {out_path}")
     # Display a success message box after export
     if QApplication.instance() is not None:
         QMessageBox.information(parent, "Export Complete", f"Log check completed and exported to {out_path}\n DONT FORGET TO SAVE THE LOG BEFORE DOWNLOAD NEW LOGS")
+
+
+
+
+
+        

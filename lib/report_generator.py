@@ -39,7 +39,7 @@ from queue import Queue
 import mmap
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from .style import (
-    StyledExcelReaderApp, StyledPushButton, StyledLineEdit, 
+    StyledPushButton, StyledLineEdit, 
     StyledProgressBar, StyledLabel, StyledListWidget,
     setup_window_style, update_window_style
 )
@@ -199,7 +199,7 @@ def CATEGORY_CHECKING1(TAG_RESULT):
         TAG_COLOR="42FF00"
     elif TAG_RESULT == "Executed" or re.search(r"([0-9]{1,90}\s+.*?\-\-\>.*?set\.)$", TAG_RESULT, re.IGNORECASE):
         TAG_REMARK = "1 MOs set"
-        TAG_COLOR="42FF00" 
+        TAG_COLOR="42FF00"
     elif TAG_RESULT == "Mo deleted":
         TAG_REMARK = "Mo deleted"
         TAG_COLOR="42FF00"             
@@ -218,10 +218,10 @@ def CATEGORY_CHECKING1(TAG_RESULT):
     else:
         TAG_REMARK = TAG_RESULT 
         TAG_COLOR="FF7575"
-            
-    return  TAG_REMARK, TAG_COLOR 
-    
-    
+    return TAG_REMARK, TAG_COLOR
+
+
+        
     
 def CATEGORY_CHECKING(TAG_RESULT):
     # Check if the string contains certain substrings
@@ -256,355 +256,57 @@ def CATEGORY_CHECKING(TAG_RESULT):
 
 
         
-class ExcelReaderApp(StyledExcelReaderApp):
-    processing_finished = pyqtSignal()
-    
-    def __init__(self):
-        super().__init__()
-        self.file_queue = Queue()  # Queue to store selected files
-        self.append_log_data = []  # Initialize an empty list to store log data
-        self.date_report = today.strftime('%Y%m%d_%H%M%S')
-        self.excel_writer = None  # Store reference to Excel writer worker
-        self.initUI()
-        
-        # Connect signals
-        self.browse_button.clicked.connect(self.open_folder_dialog)
-        self.read_button.clicked.connect(self.read_selected_excel)
-        self.quit_button.clicked.connect(self.close)
-
-    def initUI(self):
-        super().initUI()  # Call parent's initUI to set up the styled widgets
-
-    def show_success_message(self, message):
-        success_box = QMessageBox()
-        success_box.setIcon(QMessageBox.Information)
-        success_box.setWindowTitle("Success")
-        success_box.setText(message)
-        success_box.exec_()
-
-    def show_error_message(self, message):
-        error_box = QMessageBox()
-        error_box.setIcon(QMessageBox.Critical)
-        error_box.setWindowTitle("Error")
-        error_box.setText(message)
-        error_box.exec_()
-
-
-    def update_overall_progress(self, value):
-        self.progress_bar.setValue(value)
-
-    def on_thread_finished(self, file_path, log_data, selected_file, output_dir):
-        report_file = f"{output_dir}\{selected_file}.xlsx"
-        
-        # Create and start Excel writer worker
-        self.excel_writer = write_logs_to_excel(log_data, report_file, selected_file)
-        self.excel_writer.progress.connect(self.update_overall_progress)
-        self.excel_writer.finished.connect(lambda filename: self.on_excel_written(filename, log_data))
-        self.excel_writer.error.connect(self.show_error_message)
-        self.excel_writer.start()
-
-    def on_excel_written(self, filename, log_data):
-        print(f"Your Report Available On :\n{filename}\n\n")
-        self.append_log_data.extend(log_data)
-        
-        # Check if all files are processed
-        if self.file_queue.empty():
-            self.processing_finished.emit()
-            work_dir = os.getcwd()
-            self.summary_excel = os.path.join(work_dir, "output", "Summary_" + self.date_report +".xlsx")
-            
-            # Create and start Excel writer worker for summary
-            self.excel_writer = write_logs_to_excel(self.append_log_data, self.summary_excel, "NONAME")
-            self.excel_writer.progress.connect(self.update_overall_progress)
-            self.excel_writer.finished.connect(lambda _: self.show_success_message("ALL DONE"))
-            self.excel_writer.error.connect(self.show_error_message)
-            self.excel_writer.start()
-
-    def open_folder_dialog(self):
-        self.folder_path = QFileDialog.getExistingDirectory(self, "Select Folder")
-        if self.folder_path:
-            self.populate_file_list()
-    
-    def populate_file_list(self):
-        self.file_list.clear()
-        if self.folder_path:
-            folders = [
-                folder
-                for folder in os.listdir(self.folder_path)
-                if os.path.isdir(os.path.join(self.folder_path, folder))
-            ]
-            self.file_list.addItems(folders)
-        
-
-
-     
-
-
-    def read_selected_excel(self):
-        self.file_queue.queue.clear()
-
-
-        selected_items = self.file_list.selectedItems()
-        
-        if not selected_items:
-            return
-
-        for item in selected_items:
-            self.file_queue.put(item.text())
-
-        # Start processing files
-        self.process_next_file()
-
-    def process_next_file(self):
-        if not self.file_queue.empty():
-            selected_file = self.file_queue.get()
-            file_path = os.path.join(self.folder_path)
-            work_dir = os.getcwd()
-            folder_enm = self.input_directory.text()
-            # Check if the input_directory is empty
-         
-            ##self.output_dir = os.path.join(work_dir, "output")
-            self.output_dir = os.path.join(work_dir, "output")
-            self.result_dir = os.path.join(work_dir, "result")
-            
-
-            try:
-                self.progress_bar.setValue(0)
-                self.worker_thread = WorkerThread(file_path, selected_file, self.output_dir)
-                self.worker_thread.overall_progress.connect(self.update_overall_progress)
-                self.worker_thread.finished.connect(self.on_thread_finished)
-                self.worker_thread.finished.connect(self.process_next_file)
-                self.worker_thread.start()
-                
-                
-            except Exception as e:
-                print(f"Error reading Excel file: {e}")
-                self.show_error_message(f"Error reading Excel file: {e}")
-        #####else:
-        #####    self.processing_finished.emit()  # Signal that all files are processed
-        #####    work_dir = os.getcwd()
-        #####    self.summary_excel = os.path.join(work_dir, "output", "SUM.xlsx")
-        #####    write_logs_to_excel(self.append_log_data, self.summary_excel, "NONAME")
-        #####    self.show_success_message(f"ALL DONE")
-        #####    ##print(self.append_log_data)
-            
-            
-
-    # Existing methods...
-
-    
-    def check_folder (self,output_dir):
-        isExist_output_dir = os.path.exists(output_dir)
-                            
-        if not isExist_output_dir:
-            os.makedirs(output_dir)
-        return output_dir
-
-    
-
-
-
-
-from tqdm import tqdm
-
-class ExcelWriterWorker(QThread):
-    finished = pyqtSignal(str)
-    progress = pyqtSignal(int)
-    error = pyqtSignal(str)
-
-    def __init__(self, log_data, excel_filename, selected_file):
-        super().__init__()
-        self.log_data = log_data
-        self.excel_filename = excel_filename
-        self.selected_file = selected_file
-
-    def run(self):
-        try:
-            # Create a new Excel workbook
-            wb = openpyxl.Workbook()
-            ws = wb.active
-
-            # Define a regular expression pattern to remove illegal characters
-            illegal_char_pattern = re.compile(r'[\000-\010]|[\013-\014]|[\016-\037]')
-
-            # Write headers
-            headers = ["CR", "Site", "Command", "Parameter", "Report", "TAG", "Script", "Full command log"]
-            column_widths = [20, 20, 45, 25, 25, 20, 40, 70]
-
-            for col_num, (header, width) in enumerate(zip(headers, column_widths), start=1):
-                cell = ws.cell(row=1, column=col_num, value=header)
-                cell.font = Font(size=12, bold=True)
-                cell.fill = PatternFill(start_color="0EA1DD", end_color="0EA1DD", fill_type="solid")
-                ws.column_dimensions[openpyxl.utils.get_column_letter(col_num)].width = width
-
-            # Write log data with progress updates
-            total_rows = len(self.log_data)
-            for idx, (FILE_LOG, Site, type_script, line_execute, TAG_RESULT, line_full_log, att_list) in enumerate(self.log_data, start=2):
-                # Update progress
-                progress = int((idx / total_rows) * 100)
-                self.progress.emit(progress)
-
-                log1 = illegal_char_pattern.sub('', line_full_log)
-                TAG_REMARK, TAG_COLOR = CATEGORY_CHECKING(TAG_RESULT)
-                line_execute = next((m.group(1) for line in att_list if (m := re.match(r"^[A-Z0-9_\-]{4,180}>(.*?)$", line))), "") if line_execute == "NULL" else line_execute
-
-                parameter_match = re.search(r"^SET\s+.*?\s+(.*?)\s+\=", line_execute, re.IGNORECASE)
-                parameter = parameter_match.group(1) if parameter_match else ""
-
-                if not parameter:
-                    parameter_match = re.search(r">\s+set\s+.*?\s+(.*?)\s+", line_execute, re.IGNORECASE)
-                    parameter = parameter_match.group(1) if parameter_match else ""
-
-                # Write data to cells
-                ws.cell(row=idx, column=1, value=FILE_LOG).font = Font(size=9, bold=True)
-                ws.cell(row=idx, column=2, value=Site).font = Font(size=9, bold=True)
-                ws.cell(row=idx, column=3, value=line_execute).font = Font(size=9)
-                ws.cell(row=idx, column=4, value=parameter).font = Font(size=9)
-                ws.cell(row=idx, column=5, value=TAG_REMARK).font = Font(size=9)
-                ws.cell(row=idx, column=6, value=log1).font = Font(size=9)
-                ws.cell(row=idx, column=7, value=type_script).font = Font(size=9)
-                ws.cell(row=idx, column=8, value='\n'.join(att_list)).font = Font(size=9)
-
-                # Apply color fill to the "Report" column
-                ws.cell(row=idx, column=5).fill = PatternFill(start_color=TAG_COLOR, end_color=TAG_COLOR, fill_type="solid")
-
-            # Create a DataFrame from the log data for pivot tables
-            df = pd.DataFrame(self.log_data, columns=["CR", "Site", "Script", "Command", "TAG", "Full Log", "Attachments"])
-            df['Report'] = df['TAG'].apply(lambda x: CATEGORY_CHECKING(x)[0])
-
-            # Create first pivot table (by Site)
-            pivot_df = pd.pivot_table(
-                df,
-                values='Command',
-                index=['Site'],
-                columns=['Report'],
-                aggfunc='count',
-                fill_value=0
-            )
-
-            # Add total column
-            pivot_df['Total'] = pivot_df.sum(axis=1)
-
-            # Create pivot table sheet
-            pivot_sheet = wb.create_sheet(title="Pivot Table")
-            
-            # Write pivot table headers
-            headers = ['Site'] + list(pivot_df.columns)
-            for col_num, header in enumerate(headers, start=1):
-                cell = pivot_sheet.cell(row=1, column=col_num, value=header)
-                cell.font = Font(size=12, bold=True)
-                cell.fill = PatternFill(start_color="0EA1DD", end_color="0EA1DD", fill_type="solid")
-                pivot_sheet.column_dimensions[openpyxl.utils.get_column_letter(col_num)].width = 15
-
-            # Write pivot table data
-            for row_idx, (site, row) in enumerate(pivot_df.iterrows(), start=2):
-                pivot_sheet.cell(row=row_idx, column=1, value=site).font = Font(size=9, bold=True)
-                for col_idx, value in enumerate(row, start=2):
-                    cell = pivot_sheet.cell(row=row_idx, column=col_idx, value=value)
-                    cell.font = Font(size=9)
-                    cell.border = Border(
-                        left=Side(style='thin'),
-                        right=Side(style='thin'),
-                        top=Side(style='thin'),
-                        bottom=Side(style='thin')
-                    )
-
-            # Add total row
-            total_row = len(pivot_df) + 2
-            pivot_sheet.cell(row=total_row, column=1, value="Total").font = Font(size=9, bold=True)
-            for col_idx, value in enumerate(pivot_df.sum(), start=2):
-                cell = pivot_sheet.cell(row=total_row, column=col_idx, value=value)
-                cell.font = Font(size=9, bold=True)
-                cell.fill = PatternFill(start_color="0EA1DD", end_color="0EA1DD", fill_type="solid")
-                cell.border = Border(
-                    left=Side(style='thin'),
-                    right=Side(style='thin'),
-                    top=Side(style='thin'),
-                    bottom=Side(style='thin')
-                )
-
-            # Create second pivot table (Report Summary)
-            report_summary = df.groupby('Report').size().reset_index(name='Count')
-            total_commands = report_summary['Count'].sum()
-            report_summary['Percentage'] = (report_summary['Count'] / total_commands * 100).round(1).astype(str) + '%'
-
-            # Create Report Summary sheet
-            report_sheet = wb.create_sheet(title="Pivot DF Summary")
-            
-            # Write headers
-            headers = ['Report', 'Count', 'Percentage']
-            for col_num, header in enumerate(headers, start=1):
-                cell = report_sheet.cell(row=1, column=col_num, value=header)
-                cell.font = Font(size=12, bold=True)
-                cell.fill = PatternFill(start_color="0EA1DD", end_color="0EA1DD", fill_type="solid")
-                report_sheet.column_dimensions[openpyxl.utils.get_column_letter(col_num)].width = 30
-
-            # Write data
-            for row_idx, (_, row) in enumerate(report_summary.iterrows(), start=2):
-                # Write Report
-                cell = report_sheet.cell(row=row_idx, column=1, value=row['Report'])
-                cell.font = Font(size=9)
-                cell.border = Border(
-                    left=Side(style='thin'),
-                    right=Side(style='thin'),
-                    top=Side(style='thin'),
-                    bottom=Side(style='thin')
-                )
-
-                # Write Count
-                cell = report_sheet.cell(row=row_idx, column=2, value=row['Count'])
-                cell.font = Font(size=9)
-                cell.border = Border(
-                    left=Side(style='thin'),
-                    right=Side(style='thin'),
-                    top=Side(style='thin'),
-                    bottom=Side(style='thin')
-                )
-
-                # Write Percentage
-                cell = report_sheet.cell(row=row_idx, column=3, value=row['Percentage'])
-                cell.font = Font(size=9)
-                cell.border = Border(
-                    left=Side(style='thin'),
-                    right=Side(style='thin'),
-                    top=Side(style='thin'),
-                    bottom=Side(style='thin')
-                )
-
-                # Apply color fill based on Report category
-                _, TAG_COLOR = CATEGORY_CHECKING(row['Report'])
-                cell = report_sheet.cell(row=row_idx, column=1)
-                cell.fill = PatternFill(start_color=TAG_COLOR, end_color=TAG_COLOR, fill_type="solid")
-
-            # Add total row
-            total_row = len(report_summary) + 2
-            report_sheet.cell(row=total_row, column=1, value="Total").font = Font(size=9, bold=True)
-            report_sheet.cell(row=total_row, column=2, value=total_commands).font = Font(size=9, bold=True)
-            report_sheet.cell(row=total_row, column=3, value="100%").font = Font(size=9, bold=True)
-
-            # Format total row
-            for col in range(1, 4):
-                cell = report_sheet.cell(row=total_row, column=col)
-                cell.fill = PatternFill(start_color="0EA1DD", end_color="0EA1DD", fill_type="solid")
-                cell.border = Border(
-                    left=Side(style='thin'),
-                    right=Side(style='thin'),
-                    top=Side(style='thin'),
-                    bottom=Side(style='thin')
-                )
-
-            # Save the Excel workbook
-            wb.save(self.excel_filename)
-            self.finished.emit(self.excel_filename)
-
-        except Exception as e:
-            self.error.emit(str(e))
-
 def write_logs_to_excel(log_data, excel_filename, selected_file):
-    worker = ExcelWriterWorker(log_data, excel_filename, selected_file)
-    return worker
+    # Create a new workbook and select the active sheet
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Log Analysis"
+
+    # Define styles
+    header_font = Font(name='Arial', size=11, bold=True)
+    header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+    header_font_color = Font(color="FFFFFF")
+    border = Border(
+        left=Side(style='thin'),
+        right=Side(style='thin'),
+        top=Side(style='thin'),
+        bottom=Side(style='thin')
+    )
+
+    # Write headers
+    headers = ["Node", "Script", "Command", "Result", "Full Result"]
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col)
+        cell.value = header
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.font = header_font_color
+        cell.border = border
+
+    # Write data
+    for row, (_, node_log, type_script, line_execute, TAG_RESULT, TAG_RESULT_FULL, _) in enumerate(log_data, 2):
+        ws.cell(row=row, column=1, value=node_log).border = border
+        ws.cell(row=row, column=2, value=type_script).border = border
+        ws.cell(row=row, column=3, value=line_execute).border = border
+        ws.cell(row=row, column=4, value=TAG_RESULT).border = border
+        ws.cell(row=row, column=5, value=TAG_RESULT_FULL).border = border
+
+    # Adjust column widths
+    for col in ws.columns:
+        max_length = 0
+        column = col[0].column_letter
+        for cell in col:
+            try:
+                if len(str(cell.value)) > max_length:
+                    max_length = len(str(cell.value))
+            except:
+                pass
+        adjusted_width = (max_length + 2)
+        ws.column_dimensions[column].width = adjusted_width
+
+    # Save the workbook
+    wb.save(excel_filename)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    ex = ExcelReaderApp()
     sys.exit(app.exec_())

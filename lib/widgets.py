@@ -11,7 +11,7 @@
 
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, QTextEdit, QMessageBox, QFileDialog,
-    QTabWidget, QMainWindow, QLabel, QProgressBar, QStackedWidget
+    QTabWidget, QMainWindow, QLabel, QProgressBar, QStackedWidget, QListWidget, QAbstractItemView
 )
 from PyQt5.QtCore import (
     QEventLoop, QTimer, QObject, pyqtSignal, QThread, Qt, QFileInfo, QDir, QEvent
@@ -20,15 +20,16 @@ from PyQt5.QtGui import QFont, QTextCursor
 import re
 import time # For profiling in SSHTab, maybe move later
 import os
+import pandas as pd
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 # Import the run_concheck function and SSH related classes/dialogs/workers
 from .concheck import run_concheck
 from .ssh import InteractiveSSH # Assuming InteractiveSSH is needed by SSHTab
 from .dialogs import ScreenSelectionDialog, MultiConnectDialog, UploadCRDialog, DownloadLogDialog # Import dialogs used by these widgets
 from .workers import UploadWorker, SubfolderLoaderWorker, DownloadLogWorker # Import workers used by these widgets
-from .style import StyledTabWidget, TransparentTextEdit, StyledPushButton, StyledLineEdit, StyledProgressBar, TopButton # Import styled components
-# Assuming check_logs_and_export_to_excel will be moved to lib/log_checker.py later
-# from .log_checker import check_logs_and_export_to_excel
+from .style import StyledTabWidget, TransparentTextEdit, StyledPushButton, StyledLineEdit, StyledProgressBar, TopButton, StyledListWidget, StyledContainer, setup_window_style, update_window_style
+from .report_generator import process_single_log, write_logs_to_excel
 
 
 class ConcheckToolsWidget(QWidget):
@@ -479,3 +480,138 @@ class CRExecutorWidget(QWidget):
         self.connect_selected_button.clicked.connect(lambda: self.ssh_manager.open_multi_connect_dialog(self.targets))
         self.download_log_button.clicked.connect(lambda: self.ssh_manager.open_download_log_dialog(self.targets)) # Pass targets
         self.upload_cr_button.clicked.connect(lambda: self.ssh_manager.open_upload_cr_dialog(self.targets)) # Pass targets
+
+class ExcelReaderApp(QMainWindow):
+    processing_finished = pyqtSignal()
+
+    def __init__(self):
+        super().__init__()
+        self.file_path = None
+        self.selected_file = None
+        self.output_dir = None
+        self.initUI()
+        setup_window_style(self)
+
+    def initUI(self):
+        self.setWindowTitle('Excel Reader')
+        self.setGeometry(100, 100, 800, 600)
+
+        # Create central widget and layout
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        main_layout = QVBoxLayout(central_widget)
+        main_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout.setSpacing(15)
+
+        # Create container for the main content
+        container = StyledContainer()
+        main_layout.addWidget(container)
+
+        # Create folder selection button
+        self.folder_button = StyledPushButton('Select Folder')
+        self.folder_button.clicked.connect(self.open_folder_dialog)
+        container.layout().addWidget(self.folder_button)
+
+        # Create file list widget
+        self.file_list = StyledListWidget()
+        self.file_list.setSelectionMode(QAbstractItemView.SingleSelection)
+        container.layout().addWidget(self.file_list)
+
+        # Create process button
+        self.process_button = StyledPushButton('Generate CR Report')
+        self.process_button.clicked.connect(self.read_selected_excel)
+        container.layout().addWidget(self.process_button)
+
+        # Create progress bar
+        self.progress_bar = StyledProgressBar()
+        self.progress_bar.setRange(0, 100)
+        container.layout().addWidget(self.progress_bar)
+
+    def show_success_message(self, message):
+        QMessageBox.information(self, 'Success', message)
+
+    def show_error_message(self, message):
+        QMessageBox.critical(self, 'Error', message)
+
+    def update_overall_progress(self, value):
+        self.progress_bar.setValue(value)
+
+    def on_thread_finished(self, file_path, log_data, selected_file, output_dir):
+        try:
+            excel_filename = os.path.join(output_dir, f"{selected_file}_report.xlsx")
+            write_logs_to_excel(log_data, excel_filename, selected_file)
+            self.show_success_message(f"Processing completed. Report saved to {excel_filename}")
+        except Exception as e:
+            self.show_error_message(f"Error saving report: {str(e)}")
+        finally:
+            self.progress_bar.setValue(100)
+            self.processing_finished.emit()
+
+    def open_folder_dialog(self):
+        folder = QFileDialog.getExistingDirectory(self, "Select Folder")
+        if folder:
+            self.file_path = folder
+            self.populate_file_list()
+
+    def populate_file_list(self):
+        if not self.file_path:
+            return
+
+        self.file_list.clear()
+        try:
+            for item in os.listdir(self.file_path):
+                if os.path.isdir(os.path.join(self.file_path, item)):
+                    self.file_list.addItem(item)
+        except Exception as e:
+            self.show_error_message(f"Error reading folder: {str(e)}")
+
+    def read_selected_excel(self):
+        selected_items = self.file_list.selectedItems()
+        if not selected_items:
+            self.show_error_message("Please select a file first")
+            return
+
+        self.selected_file = selected_items[0].text()
+        self.output_dir = os.path.join(self.file_path, "reports")
+        self.check_folder(self.output_dir)
+
+        # Start processing in a separate thread
+        self.worker = WorkerThread(self.file_path, self.selected_file, self.output_dir)
+        self.worker.finished.connect(self.on_thread_finished)
+        self.worker.overall_progress.connect(self.update_overall_progress)
+        self.worker.start()
+
+    def check_folder(self, output_dir):
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
+    def resizeEvent(self, event):
+        update_window_style(self)
+        super().resizeEvent(event)
+
+class WorkerThread(QThread):
+    finished = pyqtSignal(str, list, str, str)
+    overall_progress = pyqtSignal(int)
+
+    def __init__(self, file_path, selected_file, output_dir):
+        super().__init__()
+        self.file_path = file_path
+        self.selected_file = selected_file
+        self.output_dir = output_dir
+
+    def run(self):
+        folder_path = os.path.join(self.file_path, self.selected_file)
+        log_files = [f for f in os.listdir(folder_path) if f.lower().endswith('.log')]
+        total_files = len(log_files)
+
+        log_data = []
+        args_list = [(f, folder_path, self.selected_file) for f in log_files]
+
+        with ProcessPoolExecutor() as executor:
+            futures = {executor.submit(process_single_log, args): args[0] for args in args_list}
+            for i, future in enumerate(as_completed(futures), 1):
+                result = future.result()
+                log_data.extend(result)
+                self.overall_progress.emit(int((i / total_files) * 100))
+
+        self.finished.emit(self.file_path, log_data, self.selected_file, self.output_dir)

@@ -22,3 +22,9 @@ CR_Tools_NEW.zip
 /lib/__pycache__
 /03_CR_LOGS
 /lib/__pycache__
+lib/__pycache__/workers.cpython-311.pyc
+lib/__pycache__/widgets.cpython-311.pyc
+lib/__pycache__/ssh.cpython-311.pyc
+lib/__pycache__/log_checker.cpython-311.pyc
+lib/__pycache__/dialogs.cpython-311.pyc
+query_001.txt
