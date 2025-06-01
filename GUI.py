@@ -353,7 +353,7 @@ class SSHManager(QMainWindow):
         dlg.download_requested.connect(self.handle_download_log_request)
         dlg.exec_()
 
-    def handle_download_log_request(self, selected_sessions, download_path):
+    def handle_download_log_request(self, selected_sessions, download_path, compare_before):
         """Handle download log request with improved error handling and cleanup."""
         try:
             # Get the current targets from the active CR Executor widget
@@ -385,7 +385,7 @@ class SSHManager(QMainWindow):
 
             # Track downloads and setup completion handler
             self._pending_downloads = len(selected_sessions)
-            self._download_errors = []  # Track any errors that occur
+            self._download_errors = []
 
             def on_download_finished():
                 """Handle download completion and check results."""
@@ -397,8 +397,8 @@ class SSHManager(QMainWindow):
                             QMessageBox.warning(self, "Download Warnings", 
                                 f"Some downloads completed with warnings:\n{error_msg}")
                         
-                        # Run the check and export
-                        check_logs_and_export_to_excel(self)
+                        # Run the check and export with compare_before parameter
+                        check_logs_and_export_to_excel(self, compare_before)
                     except Exception as e:
                         QMessageBox.critical(self, "Check Export Error", 
                             f"Failed to export check: {str(e)}")

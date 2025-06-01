@@ -12,7 +12,7 @@
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QListWidget, QPushButton, QHBoxLayout, QMessageBox,
     QLineEdit, QLabel, QComboBox, QButtonGroup, QRadioButton, QFileDialog, QProgressDialog,
-    QDialogButtonBox
+    QDialogButtonBox, QCheckBox
 )
 from PyQt5.QtCore import QEventLoop, QTimer, QObject, pyqtSignal, QThread, Qt
 import re
@@ -358,7 +358,7 @@ class MultiConnectDialog(QDialog):
         return [item.text() for item in self.session_list_widget.selectedItems()]
 
 class DownloadLogDialog(QDialog):
-    download_requested = pyqtSignal(list, str)
+    download_requested = pyqtSignal(list, str, bool)
 
     def __init__(self, targets, var_FOLDER_CR_value, parent=None):
         super().__init__(parent)
@@ -385,6 +385,10 @@ class DownloadLogDialog(QDialog):
         self.download_path_input = QLineEdit(f"~/{self.var_FOLDER_CR}/LOG/")
         layout.addWidget(self.download_path_input)
 
+        # Add Compare Before checkbox
+        self.compare_before_checkbox = QCheckBox("Compare Before")
+        layout.addWidget(self.compare_before_checkbox)
+
         # Download button
         button_layout = QHBoxLayout()
         self.download_button = QPushButton("DOWNLOAD")
@@ -395,28 +399,18 @@ class DownloadLogDialog(QDialog):
         self.setLayout(layout)
 
         self.download_button.clicked.connect(self.emit_download_request)
-        # self.session_list_widget.itemSelectionChanged.connect(self.update_default_path) # Commented out as it caused issues
-
-    # Commenting out update_default_path as it's not critical and might rely on complex interactions
-    # def update_default_path(self):
-    #     selected_items = self.session_list_widget.selectedItems()
-    #     if selected_items:
-    #         session_name = selected_items[0].text()
-    #         for target in self.targets:
-    #             if target['session_name'] == session_name:
-    #                 username = target['username']
-    #                 self.download_path_input.setText(f"/home/shared/{username}/{self.var_FOLDER_CR}/LOG/")
-    #                 break
 
     def emit_download_request(self):
         selected_sessions = [item.text() for item in self.session_list_widget.selectedItems()]
         download_path = self.download_path_input.text().strip()
+        compare_before = self.compare_before_checkbox.isChecked()
+        
         if not selected_sessions:
             QMessageBox.warning(self, "No Sessions Selected", "Please select at least one SSH session.")
             return
         if not download_path:
             QMessageBox.warning(self, "No Download Path", "Please enter a remote path to download.")
             return
-        # Emit the signal. The connection should be made by the parent (SSHManager).
-        self.download_requested.emit(selected_sessions, download_path)
+        # Emit the signal with compare_before parameter
+        self.download_requested.emit(selected_sessions, download_path, compare_before)
         self.accept()
