@@ -47,6 +47,7 @@ def check_logs_and_export_to_excel(parent=None, compare_before=False):
                     progress.show()
                 
                 df_alarm_before = pd.read_excel(before_path, sheet_name='Alarm_Before')
+                df_mobatch_status = pd.read_excel(before_path, sheet_name='Status')
                 
                 if progress is not None:
                     progress.setValue(1)
@@ -101,6 +102,31 @@ def check_logs_and_export_to_excel(parent=None, compare_before=False):
 
     result_rows = []
 
+    # Define check patterns for different data types
+    item_check_list = [
+        {
+            'name': 'cellstatus',
+            'start_marker': '####LOG_cellstatus',
+            'end_marker': '####END_LOG_cellstatus',
+            'sheet_name': 'Cell_Status',
+            'result_list': []
+        },
+        {
+            'name': 'LTE_data',
+            'start_marker': '####LOG_bandwidth',
+            'end_marker': '####END_LOG_bandwidth',
+            'sheet_name': 'LTE_data',
+            'result_list': []
+        },
+        {
+            'name': 'NR_data',
+            'start_marker': '####LOG_BAND_NR_SECTOR',
+            'end_marker': '####END_LOG_BAND_NR_SECTOR',
+            'sheet_name': 'NR_data',
+            'result_list': []
+        }
+    ]
+
     for idx, zip_path in enumerate(loop_zip_ok_file):
         fname = os.path.basename(zip_path)
         try:
@@ -137,9 +163,9 @@ def check_logs_and_export_to_excel(parent=None, compare_before=False):
                             # Check for alarm logs in 99_CONCEK2 folder
                             if len(parts) == 3 and parts[0] == 'LOG' and folder == '99_Hygiene_collect' and parts[2].endswith('.log'):
                                 alarm_section = False
-                                cellstatus_section = False
-                                lte_section = False
-                                nr_section = False
+                                # Initialize section flags for all check patterns
+                                section_flags = {item['name']: False for item in item_check_list}
+                                
                                 for line in lines:
                                     if '####LOG_Alarm' in line:
                                         alarm_section = True
@@ -147,24 +173,15 @@ def check_logs_and_export_to_excel(parent=None, compare_before=False):
                                     elif '####END_LOG_Alarm' in line:
                                         alarm_section = False
                                         continue
-                                    elif '####LOG_cellstatus' in line:
-                                        cellstatus_section = True
-                                        continue
-                                    elif '####END_LOG_cellstatus' in line:
-                                        cellstatus_section = False
-                                        continue
-                                    elif '####LOG_bandwidth' in line:
-                                        lte_section = True
-                                        continue
-                                    elif '####END_LOG_bandwidth' in line:
-                                        lte_section = False
-                                        continue
-                                    elif '####LOG_BAND_NR_SECTOR' in line:
-                                        nr_section = True
-                                        continue
-                                    elif '####END_LOG_BAND_NR_SECTOR' in line:
-                                        nr_section = False
-                                        continue
+                                    
+                                    # Check for start/end markers for each pattern
+                                    for item in item_check_list:
+                                        if item['start_marker'] in line:
+                                            section_flags[item['name']] = True
+                                            continue
+                                        elif item['end_marker'] in line:
+                                            section_flags[item['name']] = False
+                                            continue
                                     
                                     if alarm_section and line.strip() and ';' in line:
                                         try:
@@ -186,98 +203,38 @@ def check_logs_and_export_to_excel(parent=None, compare_before=False):
                                         except Exception as alarm_err:
                                             print(f"Error processing alarm line in {member}: {alarm_err}")
 
-                                    if cellstatus_section and line.strip() and ';' in line:
-                                        try:
-                                            # Split line by semicolon and strip whitespace from each part
-                                            parts = [part.strip() for part in line.split(';')]
-                                            
-                                            # If this is the header row, store the column mapping
-                                            if parts[0].lower() == "mo":
-                                                header_mapping = {col.lower(): idx for idx, col in enumerate(parts)}
-                                                continue
-                                            
-                                            # Skip empty lines
-                                            if not parts[0]:
-                                                continue
+                                    # Process data for each active section
+                                    for item in item_check_list:
+                                        if section_flags[item['name']] and line.strip() and ';' in line:
+                                            try:
+                                                # Split line by semicolon and strip whitespace from each part
+                                                parts = [part.strip() for part in line.split(';')]
                                                 
-                                            # Create cell status entry with MO as special column
-                                            cell_status = {
-                                                'FILE': fname,
-                                                'NODENAME': nodename,
-                                                'MO': parts[header_mapping.get('mo', 0)]
-                                            }
-                                            
-                                            # Add all other columns from the header mapping
-                                            for col_name, idx in header_mapping.items():
-                                                if col_name != 'mo':  # Skip MO as it's already added
-                                                    cell_status[col_name] = parts[idx]
-                                            
-                                            result_cellstatus_check.append(cell_status)
-                                            
-                                        except Exception as cellstatus_err:
-                                            print(f"Error processing cell status line in {member}: {cellstatus_err}")
-
-                                    if lte_section and line.strip() and ';' in line:
-                                        try:
-                                            # Split line by semicolon and strip whitespace from each part
-                                            parts = [part.strip() for part in line.split(';')]
-                                            
-                                            # If this is the header row, store the column mapping
-                                            if parts[0].lower() == "mo":
-                                                header_mapping = {col.lower(): idx for idx, col in enumerate(parts)}
-                                                continue
-                                            
-                                            # Skip empty lines
-                                            if not parts[0]:
-                                                continue
+                                                # If this is the header row, store the column mapping
+                                                if parts[0].lower() == "mo":
+                                                    header_mapping = {col.lower(): idx for idx, col in enumerate(parts)}
+                                                    continue
                                                 
-                                            # Create LTE data entry with MO as special column
-                                            lte_data = {
-                                                'FILE': fname,
-                                                'NODENAME': nodename,
-                                                'MO': parts[header_mapping.get('mo', 0)]
-                                            }
-                                            
-                                            # Add all other columns from the header mapping
-                                            for col_name, idx in header_mapping.items():
-                                                if col_name != 'mo':  # Skip MO as it's already added
-                                                    lte_data[col_name] = parts[idx]
-                                            
-                                            result_lte_check.append(lte_data)
-                                            
-                                        except Exception as lte_err:
-                                            print(f"Error processing LTE data line in {member}: {lte_err}")
-
-                                    if nr_section and line.strip() and ';' in line:
-                                        try:
-                                            # Split line by semicolon and strip whitespace from each part
-                                            parts = [part.strip() for part in line.split(';')]
-                                            
-                                            # If this is the header row, store the column mapping
-                                            if parts[0].lower() == "mo":
-                                                header_mapping = {col.lower(): idx for idx, col in enumerate(parts)}
-                                                continue
-                                            
-                                            # Skip empty lines
-                                            if not parts[0]:
-                                                continue
+                                                # Skip empty lines
+                                                if not parts[0]:
+                                                    continue
+                                                    
+                                                # Create data entry with MO as special column
+                                                data_entry = {
+                                                    'FILE': fname,
+                                                    'NODENAME': nodename,
+                                                    'MO': parts[header_mapping.get('mo', 0)]
+                                                }
                                                 
-                                            # Create NR data entry with MO as special column
-                                            nr_data = {
-                                                'FILE': fname,
-                                                'NODENAME': nodename,
-                                                'MO': parts[header_mapping.get('mo', 0)]
-                                            }
-                                            
-                                            # Add all other columns from the header mapping
-                                            for col_name, idx in header_mapping.items():
-                                                if col_name != 'mo':  # Skip MO as it's already added
-                                                    nr_data[col_name] = parts[idx]
-                                            
-                                            result_nr_check.append(nr_data)
-                                            
-                                        except Exception as nr_err:
-                                            print(f"Error processing NR data line in {member}: {nr_err}")
+                                                # Add all other columns from the header mapping
+                                                for col_name, idx in header_mapping.items():
+                                                    if col_name != 'mo':  # Skip MO as it's already added
+                                                        data_entry[col_name] = parts[idx]
+                                                
+                                                item['result_list'].append(data_entry)
+                                                
+                                            except Exception as data_err:
+                                                print(f"Error processing {item['name']} line in {member}: {data_err}")
 
                         except Exception as open_err:
                             print(f"Error opening {member} in {fname}: {open_err}")
@@ -319,16 +276,35 @@ def check_logs_and_export_to_excel(parent=None, compare_before=False):
                     right_on=['NODENAME_BEFORE', 'Severity_BEFORE', 'Problem_BEFORE', 'Object_BEFORE'],
                     how='left'
                 )
-                
+                # Merge the dataframes on df mobatch
+                df_compare_alarm = pd.merge(
+                    df_compare_alarm,
+                    df_mobatch_status,
+                    left_on=['NODENAME'],
+                    right_on=['NODENAME'],
+                    how='left'
+                )
+
+
                 # Remove specific _BEFORE columns
-                columns_to_drop = ['NODENAME_BEFORE', 'Severity_BEFORE', 
+                columns_to_drop = ['NODENAME_BEFORE', 'Severity_BEFORE', 'Status_After',
                 'Object_BEFORE','Cause_BEFORE','AdditionalText_BEFORE']
                 df_compare_alarm = df_compare_alarm.drop(columns=columns_to_drop)
                 
-                # Add REMARK column based on whether the row exists in before data
-                df_compare_alarm['REMARK'] = df_compare_alarm['Problem_BEFORE'].apply(
-                    lambda x: 'Alarm Existing' if pd.notna(x) else 'NEW Alarm'
-                )
+                # Add REMARK column based on whether the row exists in before data and Status_Before
+                def get_remark(row):
+                    if pd.notna(row['Problem_BEFORE']):
+                        return 'Alarm Existing'
+                    elif pd.isna(row['Status_Before']):
+                        return 'NO DATA BEFORE'
+                    elif row['Status_Before'] == 'Unremote':
+                        return 'Before Site Unremote'
+                    elif row['Status_Before'] == 'OK':
+                        return 'NEW Alarm'
+                    else:
+                        return 'NO DATA BEFORE'
+
+                df_compare_alarm['REMARK'] = df_compare_alarm.apply(get_remark, axis=1)
                 
                 # Export the comparison data
                 df_compare_alarm.to_excel(writer, sheet_name='ALARM_COMPARE', index=False)
@@ -345,20 +321,11 @@ def check_logs_and_export_to_excel(parent=None, compare_before=False):
                 # Export the before data
                 df_alarm_before.to_excel(writer, sheet_name='ALARM_BEFORE', index=False)
         
-        # Export cell status data if available
-        if result_cellstatus_check:
-            df_cellstatus = pd.DataFrame(result_cellstatus_check)
-            df_cellstatus.to_excel(writer, sheet_name='Cell_Status', index=False)
-
-        # Export LTE data if available
-        if result_lte_check:
-            df_lte = pd.DataFrame(result_lte_check)
-            df_lte.to_excel(writer, sheet_name='LTE_data', index=False)
-
-        # Export NR data if available
-        if result_nr_check:
-            df_nr = pd.DataFrame(result_nr_check)
-            df_nr.to_excel(writer, sheet_name='NR_data', index=False)
+        # Export data for each check pattern if available
+        for item in item_check_list:
+            if item['result_list']:
+                df_data = pd.DataFrame(item['result_list'])
+                df_data.to_excel(writer, sheet_name=item['sheet_name'], index=False)
 
         # Adjust column widths for all sheets
         for sheet_name in writer.sheets:
