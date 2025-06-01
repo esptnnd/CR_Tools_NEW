@@ -147,8 +147,13 @@ def check_logs_and_export_to_excel(parent=None, compare_before=False):
                                      print(f"Error reading {member} in {fname}: {read_err}")
                                      lines = [] # Assign empty list on error
 
+                            error1 = any('Checking ip contact...Not OK' in line for line in lines)
+                            error2 = any(line.startswith('Unable to connect to ') for line in lines)
+                            error3 = any('tbac control - unauthorised network element' in line for line in lines)
+
                             # Update: UNREMOTE if either condition is met
-                            if any('Checking ip contact...Not OK' in line for line in lines) or any(line.startswith('Unable to connect to ') for line in lines):
+                            ###if any('Checking ip contact...Not OK' in line for line in lines) or any(line.startswith('Unable to connect to ') for line in lines):
+                            if error1 or error2 or error3:
                                 remark = 'UNREMOTE'
                             else:
                                 remark = 'OK'
