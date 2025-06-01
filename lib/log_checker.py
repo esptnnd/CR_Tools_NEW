@@ -28,6 +28,8 @@ def check_logs_and_export_to_excel(parent=None, compare_before=False):
     result_rows = []
     result_alarm_check = []  # New list for alarm data
     result_cellstatus_check = []  # New list for cell status data
+    result_lte_check = []  # New list for LTE data
+    result_nr_check = []  # New list for NR data
     progress = None
 
     # Load BEFORE.xlsx if compare_before is True
@@ -136,6 +138,8 @@ def check_logs_and_export_to_excel(parent=None, compare_before=False):
                             if len(parts) == 3 and parts[0] == 'LOG' and folder == '99_Hygiene_collect' and parts[2].endswith('.log'):
                                 alarm_section = False
                                 cellstatus_section = False
+                                lte_section = False
+                                nr_section = False
                                 for line in lines:
                                     if '####LOG_Alarm' in line:
                                         alarm_section = True
@@ -148,6 +152,18 @@ def check_logs_and_export_to_excel(parent=None, compare_before=False):
                                         continue
                                     elif '####END_LOG_cellstatus' in line:
                                         cellstatus_section = False
+                                        continue
+                                    elif '####LOG_bandwidth' in line:
+                                        lte_section = True
+                                        continue
+                                    elif '####END_LOG_bandwidth' in line:
+                                        lte_section = False
+                                        continue
+                                    elif '####LOG_BAND_NR_SECTOR' in line:
+                                        nr_section = True
+                                        continue
+                                    elif '####END_LOG_BAND_NR_SECTOR' in line:
+                                        nr_section = False
                                         continue
                                     
                                     if alarm_section and line.strip() and ';' in line:
@@ -174,16 +190,94 @@ def check_logs_and_export_to_excel(parent=None, compare_before=False):
                                         try:
                                             # Split line by semicolon and strip whitespace from each part
                                             parts = [part.strip() for part in line.split(';')]
-                                            if len(parts) >= 3 and parts[0].lower() != "mo":  # Skip header row and ensure we have all required fields
-                                                result_cellstatus_check.append({
-                                                    'FILE': fname,
-                                                    'NODENAME': nodename,
-                                                    'MO': parts[0],
-                                                    'administrativeState': parts[1],
-                                                    'operationalState': parts[2]
-                                                })
+                                            
+                                            # If this is the header row, store the column mapping
+                                            if parts[0].lower() == "mo":
+                                                header_mapping = {col.lower(): idx for idx, col in enumerate(parts)}
+                                                continue
+                                            
+                                            # Skip empty lines
+                                            if not parts[0]:
+                                                continue
+                                                
+                                            # Create cell status entry with MO as special column
+                                            cell_status = {
+                                                'FILE': fname,
+                                                'NODENAME': nodename,
+                                                'MO': parts[header_mapping.get('mo', 0)]
+                                            }
+                                            
+                                            # Add all other columns from the header mapping
+                                            for col_name, idx in header_mapping.items():
+                                                if col_name != 'mo':  # Skip MO as it's already added
+                                                    cell_status[col_name] = parts[idx]
+                                            
+                                            result_cellstatus_check.append(cell_status)
+                                            
                                         except Exception as cellstatus_err:
                                             print(f"Error processing cell status line in {member}: {cellstatus_err}")
+
+                                    if lte_section and line.strip() and ';' in line:
+                                        try:
+                                            # Split line by semicolon and strip whitespace from each part
+                                            parts = [part.strip() for part in line.split(';')]
+                                            
+                                            # If this is the header row, store the column mapping
+                                            if parts[0].lower() == "mo":
+                                                header_mapping = {col.lower(): idx for idx, col in enumerate(parts)}
+                                                continue
+                                            
+                                            # Skip empty lines
+                                            if not parts[0]:
+                                                continue
+                                                
+                                            # Create LTE data entry with MO as special column
+                                            lte_data = {
+                                                'FILE': fname,
+                                                'NODENAME': nodename,
+                                                'MO': parts[header_mapping.get('mo', 0)]
+                                            }
+                                            
+                                            # Add all other columns from the header mapping
+                                            for col_name, idx in header_mapping.items():
+                                                if col_name != 'mo':  # Skip MO as it's already added
+                                                    lte_data[col_name] = parts[idx]
+                                            
+                                            result_lte_check.append(lte_data)
+                                            
+                                        except Exception as lte_err:
+                                            print(f"Error processing LTE data line in {member}: {lte_err}")
+
+                                    if nr_section and line.strip() and ';' in line:
+                                        try:
+                                            # Split line by semicolon and strip whitespace from each part
+                                            parts = [part.strip() for part in line.split(';')]
+                                            
+                                            # If this is the header row, store the column mapping
+                                            if parts[0].lower() == "mo":
+                                                header_mapping = {col.lower(): idx for idx, col in enumerate(parts)}
+                                                continue
+                                            
+                                            # Skip empty lines
+                                            if not parts[0]:
+                                                continue
+                                                
+                                            # Create NR data entry with MO as special column
+                                            nr_data = {
+                                                'FILE': fname,
+                                                'NODENAME': nodename,
+                                                'MO': parts[header_mapping.get('mo', 0)]
+                                            }
+                                            
+                                            # Add all other columns from the header mapping
+                                            for col_name, idx in header_mapping.items():
+                                                if col_name != 'mo':  # Skip MO as it's already added
+                                                    nr_data[col_name] = parts[idx]
+                                            
+                                            result_nr_check.append(nr_data)
+                                            
+                                        except Exception as nr_err:
+                                            print(f"Error processing NR data line in {member}: {nr_err}")
 
                         except Exception as open_err:
                             print(f"Error opening {member} in {fname}: {open_err}")
@@ -255,6 +349,16 @@ def check_logs_and_export_to_excel(parent=None, compare_before=False):
         if result_cellstatus_check:
             df_cellstatus = pd.DataFrame(result_cellstatus_check)
             df_cellstatus.to_excel(writer, sheet_name='Cell_Status', index=False)
+
+        # Export LTE data if available
+        if result_lte_check:
+            df_lte = pd.DataFrame(result_lte_check)
+            df_lte.to_excel(writer, sheet_name='LTE_data', index=False)
+
+        # Export NR data if available
+        if result_nr_check:
+            df_nr = pd.DataFrame(result_nr_check)
+            df_nr.to_excel(writer, sheet_name='NR_data', index=False)
 
         # Adjust column widths for all sheets
         for sheet_name in writer.sheets:

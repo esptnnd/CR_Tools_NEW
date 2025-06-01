@@ -29,3 +29,7 @@ lib/__pycache__/log_checker.cpython-311.pyc
 lib/__pycache__/dialogs.cpython-311.pyc
 query_001.txt
 00_IPDB/BEFORE.xlsx
+01_SCRIPT/99_Hygiene_collect/command_mos.txt
+01_SCRIPT/99_Hygiene_collect/sites_list - Copy.txt
+01_SCRIPT/99_Hygiene_collect/sites_list.txt
+01_SCRIPT/99_Hygiene_collect/sites_list_ENM-RAN3A.txt
