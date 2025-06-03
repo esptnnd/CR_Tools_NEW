@@ -43,3 +43,14 @@ query_001.txt
 01_SCRIPT/CR_S1/sites_list_ENM_DTAC_FDD1.txt
 01_SCRIPT/CR_S1/sites_list_ENM_DTAC_TDD2.txt
 00_IPDB/ALL_IPDB.txt
+00_IPDB/ALL_IPDB.txt
+00_IPDB/ALL_IPDB.txt
+01_SCRIPT/99_Hygiene_collect.zip
+00_IPDB/00_IPDB.zip
+02_DOWNLOAD/ENM_DTAC_FDD1_download.zip
+02_DOWNLOAD/ENM_DTAC_FDD2_download.zip
+02_DOWNLOAD/ENM_DTAC_FDD3_download.zip
+02_DOWNLOAD/ENM_DTAC_FDD4_download.zip
+01_SCRIPT/CR_S1/sites_list_ENM_DTAC_FDD2.txt
+01_SCRIPT/CR_S1/sites_list_ENM_DTAC_FDD3.txt
+01_SCRIPT/CR_S1/sites_list_ENM_DTAC_FDD4.txt
