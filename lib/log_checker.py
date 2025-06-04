@@ -48,6 +48,7 @@ def check_logs_and_export_to_excel(parent=None, compare_before=False):
                 
                 df_alarm_before = pd.read_excel(before_path, sheet_name='Alarm_Before')
                 df_mobatch_status = pd.read_excel(before_path, sheet_name='Status')
+                df_rnc_cell_activity = pd.read_excel(before_path, sheet_name='RNC_cell_activity')
                 
                 if progress is not None:
                     progress.setValue(1)
@@ -124,7 +125,15 @@ def check_logs_and_export_to_excel(parent=None, compare_before=False):
             'end_marker': '####END_LOG_BAND_NR_SECTOR',
             'sheet_name': 'NR_data',
             'result_list': []
+        },
+        {
+            'name': 'RNC_celldata',
+            'start_marker': '####LOG_CELL_3G',
+            'end_marker': '####END_LOG_CELL_3G',
+            'sheet_name': 'RNC_celldata',
+            'result_list': []
         }
+        
     ]
 
     for idx, zip_path in enumerate(loop_zip_ok_file):
@@ -330,7 +339,62 @@ def check_logs_and_export_to_excel(parent=None, compare_before=False):
         for item in item_check_list:
             if item['result_list']:
                 df_data = pd.DataFrame(item['result_list'])
-                df_data.to_excel(writer, sheet_name=item['sheet_name'], index=False)
+                if item['sheet_name'] == 'RNC_celldata':
+                    # Remove 'UtranCell=' from MO column (case-insensitive)
+                    df_rnc_dump = df_data.copy()
+                    df_rnc_dump = df_rnc_dump[['NODENAME', 'MO']]  # Keep only NODENAME and MO columns
+                    df_rnc_dump['MO'] = df_rnc_dump['MO'].str.replace('UtranCell=', '', case=False)                    
+                    
+                    # Create source and target copies of df_rnc_dump for merging
+                    df_source = df_rnc_dump.rename(columns={'NODENAME': 'SOURCE_NODE', 'MO': 'SOURCE_MO'})
+                    df_target = df_rnc_dump.rename(columns={'NODENAME': 'TARGET_NODE', 'MO': 'TARGET_MO'})
+                    
+                    # Single merge operation for both source and target
+                    df_merged = pd.merge(
+                        pd.merge(df_rnc_cell_activity, df_source, left_on=['RNC_SOURCE', 'CELLNAME'], right_on=['SOURCE_NODE', 'SOURCE_MO'], how='left'),
+                        df_target,
+                        left_on=['RNC_TARGET', 'CELLNAME'],
+                        right_on=['TARGET_NODE', 'TARGET_MO'],
+                        how='left'
+                    )
+                    
+                    # Add remarks based on merge results
+                    df_merged['REMARK_SOURCE'] = df_merged['SOURCE_NODE'].notna().map({True: 'DEFINED', False: 'N/A'})
+                    df_merged['REMARK_TARGET'] = df_merged['TARGET_NODE'].notna().map({True: 'DEFINED', False: 'N/A'})
+                    
+                    # Drop temporary columns
+                    df_merged = df_merged.drop(columns=['SOURCE_NODE', 'SOURCE_MO', 'TARGET_NODE', 'TARGET_MO'])
+
+
+                    # Create source and target copies of df_rnc_dump for merging 
+                    ### IUBLINK CHECK
+                    df_rnc_dump = df_data.copy()
+                    df_rnc_dump = df_rnc_dump[['NODENAME', 'iublinkref']]    
+                    df_rnc_dump['iublinkref'] = df_rnc_dump['iublinkref'].str.replace('IubLink=', '', case=False)                 
+                    df_source = df_rnc_dump.rename(columns={'NODENAME': 'SOURCE_NODE', 'iublinkref': 'IUB_SOURCE'})
+                    df_target = df_rnc_dump.rename(columns={'NODENAME': 'TARGET_NODE', 'iublinkref': 'IUB_TARGET'})
+                    # Single merge operation for both source and target
+                    df_merged = pd.merge(
+                        pd.merge(df_merged, df_source, left_on=['RNC_SOURCE', 'IUBLINK'], right_on=['SOURCE_NODE', 'IUB_SOURCE'], how='left'),
+                        df_target,
+                        left_on=['RNC_TARGET', 'IUBLINK'],
+                        right_on=['TARGET_NODE', 'IUB_TARGET'],
+                        how='left'
+                    )
+                    # Add remarks based on merge results
+                    df_merged['REMARK_IUB_SOURCE'] = df_merged['SOURCE_NODE'].notna().map({True: 'IUB DEFINED', False: 'N/A'})
+                    df_merged['REMARK_IUB_TARGET'] = df_merged['TARGET_NODE'].notna().map({True: 'IUB DEFINED', False: 'N/A'})
+                    # Drop temporary columns
+                    df_merged = df_merged.drop(columns=['SOURCE_NODE', 'IUB_SOURCE', 'TARGET_NODE', 'IUB_TARGET'])
+                                       
+                                        
+
+                    
+                    # Export merged data to RNC_ACTIVITY sheet
+                    df_merged.to_excel(writer, sheet_name='RNC_ACTIVITY', index=False)
+                    df_data.to_excel(writer, sheet_name=item['sheet_name'], index=False)
+                else:
+                    df_data.to_excel(writer, sheet_name=item['sheet_name'], index=False)
 
         # Adjust column widths for all sheets
         for sheet_name in writer.sheets:
