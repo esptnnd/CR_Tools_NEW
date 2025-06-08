@@ -313,16 +313,27 @@ class SSHTab(QWidget):
         print("SSHTab received upload request (delegating to manager)")
 
 
-    def perform_sftp_and_remote_commands(self, selected_folders, selected_mode, selected_sessions=None, mobatch_paralel=70, mobatch_timeout=30, assigned_nodes=None, mobatch_execution_mode="REGULAR_MOBATCH"):
-        # This method is called by SSHManager to initiate upload on a specific tab
-        print(f"SSHTab {self.target['session_name']} performing SFTP and remote commands.")
+    def perform_sftp_and_remote_commands(self, selected_folders, selected_mode, selected_sessions=None, 
+                                       mobatch_paralel=70, mobatch_timeout=30, assigned_nodes=None, 
+                                       mobatch_execution_mode="REGULAR_MOBATCH"):
+        """Handle SFTP upload and remote commands"""
+        self.append_output(f"SSHTab {self.target['session_name']} performing SFTP and remote commands.")
         self.append_output("Preparing for SFTP upload and remote commands...")
         self.progress_bar.setValue(0)
         self.progress_bar.setVisible(True)
-
-        # Clean up existing upload worker/thread if they exist
+        
+        # Store the mobatch execution mode
+        self.mobatch_execution_mode = mobatch_execution_mode
+        
         self.cleanup_upload_thread()
+        self._setup_upload_worker(selected_folders, selected_mode, selected_sessions,
+                                mobatch_paralel, mobatch_timeout, assigned_nodes,
+                                mobatch_execution_mode)
 
+    def _setup_upload_worker(self, selected_folders, selected_mode, selected_sessions,
+                           mobatch_paralel, mobatch_timeout, assigned_nodes,
+                           mobatch_execution_mode):
+        """Setup the upload worker with the given parameters"""
         self.upload_thread = QThread()
         # Pass necessary parameters to the UploadWorker, including var_FOLDER_CR from ssh_manager
         self.upload_worker = UploadWorker(
@@ -390,21 +401,42 @@ class SSHTab(QWidget):
             # Use var_FOLDER_CR and var_SCREEN_CR from ssh_manager
             remote_base_dir = f"/home/shared/{self.target['username']}/{self.ssh_manager.var_FOLDER_CR}"
             ENM_SERVER = self.target['session_name']
-            # Use CMD_BATCH_SEND_FORMAT from ssh_manager
-            self.command_batch_RUN.setPlainText(self.ssh_manager.CMD_BATCH_SEND_FORMAT.format(remote_base_dir=remote_base_dir, ENM_SERVER=ENM_SERVER, screen_session=self.ssh_manager.var_SCREEN_CR))
+            
+            # Use appropriate command format based on mobatch execution mode
+            if hasattr(self, 'mobatch_execution_mode') and self.mobatch_execution_mode == "CMBULK IMPORT":
+                command_format = self.ssh_manager.CMD_BATCH_SEND_FORMAT_CMBULK
+            else:
+                command_format = self.ssh_manager.CMD_BATCH_SEND_FORMAT
+                
+            self.command_batch_RUN.setPlainText(
+                command_format.format(
+                    remote_base_dir=remote_base_dir,
+                    ENM_SERVER=ENM_SERVER,
+                    screen_session=self.ssh_manager.var_SCREEN_CR
+                )
+            )
             # Automatically send the batch commands
             self.send_batch_commands()
         # No need to clean up worker/thread here; handled by cleanup_upload_thread
 
     def send_batch_commands(self):
+        """Send batch commands to SSH session"""
         if not self.ssh or not self.connected:
             self.append_output("[ERROR] Not connected.")
             return
+            
         commands = self.command_batch_RUN.toPlainText().splitlines()
         for line in commands:
             cmd = line.strip()
             if cmd:
                 self.ssh.send_command(cmd)
+                # Add to command history if not already present
+                if not hasattr(self, '_command_history'):
+                    self._command_history = []
+                if not self._command_history or self._command_history[-1] != cmd:
+                    self._command_history.append(cmd)
+                if hasattr(self, '_history_index'):
+                    self._history_index = len(self._command_history)
 
     def retry_upload(self):
         # This method needs to know the last successful upload parameters.

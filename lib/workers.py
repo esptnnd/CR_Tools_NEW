@@ -167,12 +167,22 @@ class UploadWorker(QObject):
                             zipf.write(file_path, arcname)
 
                 # Add 01_SCRIPT/mobatch_v2.py to the zip
-                mobatch_script_path = os.path.join('01_SCRIPT', 'mobatch_v2.py')
-                if os.path.exists(mobatch_script_path):
-                     zipf.write(mobatch_script_path, 'mobatch_v2.py') # Add to the root of the zip
-                     self.output.emit(f"Added {mobatch_script_path} to zip.")
-                else:
-                     self.output.emit(f"[WARNING] {mobatch_script_path} not found, skipping addition to zip.")
+                if self.mobatch_execution_mode == "PYTHON_MOBATCH":
+                    mobatch_script_path = os.path.join('01_SCRIPT', 'mobatch_v2.py')
+                    if os.path.exists(mobatch_script_path):
+                        zipf.write(mobatch_script_path, 'mobatch_v2.py') # Add to the root of the zip
+                        self.output.emit(f"Added {mobatch_script_path} to zip.")
+                    else:
+                        self.output.emit(f"[WARNING] {mobatch_script_path} not found, skipping addition to zip.")
+
+                if self.mobatch_execution_mode == "CMBULK IMPORT":
+                    mobatch_script_path = os.path.join('01_SCRIPT', 'CMBULK_import.py')
+                    if os.path.exists(mobatch_script_path):
+                        zipf.write(mobatch_script_path, 'CMBULK_import.py') # Add to the root of the zip
+                        self.output.emit(f"Added {mobatch_script_path} to zip.")
+                    else:
+                        self.output.emit(f"[WARNING] {mobatch_script_path} not found, skipping addition to zip.")
+
 
             self.output.emit(f"Created local {local_zip_path}")
 

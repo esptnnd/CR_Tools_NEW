@@ -64,6 +64,16 @@ class SSHManager(QMainWindow):
         self.ssh_targets_true = [] # Default value
         self.ssh_targets_dtac = [] # Default value
         self.CMD_BATCH_SEND_FORMAT = "cd {remote_base_dir}\nls -ltrh\n pkill -f \"SCREEN.*{screen_session}\" \n screen -S {screen_session} \n bash -i  RUN_CR_{ENM_SERVER}.txt && exit\n" # Default
+        ##self.CMD_BATCH_SEND_FORMAT_CMBULK = "cd {remote_base_dir}\nls -ltrh \n echo CMBULK_{ENM_SERVER}.txt \n grep -h -v BUKAN */0*BULK*txt \nmkdir -p {remote_base_dir}/LOG/\n  python CMBULK_import.py  stat  \n python CMBULK_import.py  stat   9999 >  {remote_base_dir}/LOG/CMBULK_{ENM_SERVER}.txt\n " # CMBULK IMPORT mode
+        self.CMD_BATCH_SEND_FORMAT_CMBULK = (
+            "cd {remote_base_dir}\n"
+            "ls -ltrh\n"
+            "grep -h -v NOT_EXIST_PATTERN */0*_{ENM_SERVER}*txt > CMBULK_{ENM_SERVER}.txt\n"
+            "mkdir -p {remote_base_dir}/LOG/\n"
+            "##python CMBULK_import.py upload CMBULK_{ENM_SERVER}.txt \n"
+            "python CMBULK_import.py stat\n"
+            "python CMBULK_import.py stat 9999 > {remote_base_dir}/LOG/CMBULK_{ENM_SERVER}.txt\n"
+        )        
 
         try:
             with open(settings_path, 'r') as f:
@@ -73,6 +83,7 @@ class SSHManager(QMainWindow):
             self.ssh_targets_true = settings.get('ssh_targets_true', self.ssh_targets_true)
             self.ssh_targets_dtac = settings.get('ssh_targets_dtac', self.ssh_targets_dtac)
             self.CMD_BATCH_SEND_FORMAT = settings.get('CMD_BATCH_SEND_FORMAT', self.CMD_BATCH_SEND_FORMAT)
+            self.CMD_BATCH_SEND_FORMAT_CMBULK = settings.get('CMD_BATCH_SEND_FORMAT_CMBULK', self.CMD_BATCH_SEND_FORMAT_CMBULK)
 
         except FileNotFoundError:
             QMessageBox.critical(self, "Configuration Error", f"settings.json not found at {settings_path}. Using default values.")

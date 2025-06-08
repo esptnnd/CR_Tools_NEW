@@ -193,14 +193,17 @@ class UploadCRDialog(QDialog):
         self.mobatch_mode_group = QButtonGroup(self)
         self.radio_python_mobatch = QRadioButton("PYTHON_MOBATCH")
         self.radio_regular_mobatch = QRadioButton("REGULAR_MOBATCH")
+        self.radio_cmbulk_import = QRadioButton("CMBULK IMPORT")
         self.radio_regular_mobatch.setChecked(True) # Default to regular
 
         self.mobatch_mode_group.addButton(self.radio_python_mobatch)
         self.mobatch_mode_group.addButton(self.radio_regular_mobatch)
+        self.mobatch_mode_group.addButton(self.radio_cmbulk_import)
 
         mobatch_mode_layout = QHBoxLayout()
         mobatch_mode_layout.addWidget(self.radio_python_mobatch)
         mobatch_mode_layout.addWidget(self.radio_regular_mobatch)
+        mobatch_mode_layout.addWidget(self.radio_cmbulk_import)
         mobatch_mode_layout.addStretch()
         layout.addLayout(mobatch_mode_layout)
 
@@ -310,8 +313,10 @@ class UploadCRDialog(QDialog):
         # Get mobatch execution mode
         if self.radio_python_mobatch.isChecked():
             mobatch_execution_mode = "PYTHON_MOBATCH"
-        else:
+        elif self.radio_regular_mobatch.isChecked():
             mobatch_execution_mode = "REGULAR_MOBATCH"
+        elif self.radio_cmbulk_import.isChecked():
+            mobatch_execution_mode = "CMBULK IMPORT"
 
         # Connect the signal to the SSHManager's handler before emitting
         # The connection needs to be made by the parent (SSHManager) when creating the dialog, not here.

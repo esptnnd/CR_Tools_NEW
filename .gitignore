@@ -4,6 +4,7 @@ settings.json
 CR_Tools_NEW.zip
 00_IPDB/ipdb_delim_ALLOSS_NEW.txt
 00_IPDB/ipdb_delim_ALLOSS_OLD.txt
+00_IPDB/ALL_IPDB.txt
 01_SCRIPT/99_CONCEK2/sites_list_ENM-RAN4A.txt
 01_SCRIPT/99_CONCEK2/sites_list_ENM-RAN2A.txt
 02_DOWNLOAD/ENM-RAN2A_download.zip
@@ -35,16 +36,12 @@ query_001.txt
 01_SCRIPT/99_Hygiene_collect/sites_list_ENM-RAN3A.txt
 02_DOWNLOAD/ENM-RAN3A_download.zip
 02_DOWNLOAD/MOBATCH_Check.xlsx
-00_IPDB/ALL_IPDB.txt
 01_SCRIPT/99_Hygiene_collect/sites_list_ENM-RAN1A.txt
 01_SCRIPT/CR_S1.zip
 01_SCRIPT/CR_S1/command_mos.txt
 01_SCRIPT/CR_S1/sites_list.txt
 01_SCRIPT/CR_S1/sites_list_ENM_DTAC_FDD1.txt
 01_SCRIPT/CR_S1/sites_list_ENM_DTAC_TDD2.txt
-00_IPDB/ALL_IPDB.txt
-00_IPDB/ALL_IPDB.txt
-00_IPDB/ALL_IPDB.txt
 01_SCRIPT/99_Hygiene_collect.zip
 00_IPDB/00_IPDB.zip
 02_DOWNLOAD/ENM_DTAC_FDD1_download.zip
@@ -54,3 +51,10 @@ query_001.txt
 01_SCRIPT/CR_S1/sites_list_ENM_DTAC_FDD2.txt
 01_SCRIPT/CR_S1/sites_list_ENM_DTAC_FDD3.txt
 01_SCRIPT/CR_S1/sites_list_ENM_DTAC_FDD4.txt
+/01_SCRIPT/CR_EXTRA
+/01_SCRIPT/00_CR_ACTIVITY
+/01_SCRIPT/CR_S2
+02_DOWNLOAD/ENM-RAN1A_download.zip
+
+/00_IPDB
+/01_SCRIPT/CR_S3
