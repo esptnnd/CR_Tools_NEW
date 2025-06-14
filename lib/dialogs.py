@@ -186,26 +186,19 @@ class UploadCRDialog(QDialog):
         self.mode_combo.addItems(["TRUE", "DTAC", "SPLIT_RANDOMLY"])
         layout.addWidget(self.mode_combo)
 
-        # New: Radio buttons for Mobatch Execution Mode
+        # New: ComboBox for Mobatch Execution Mode
         mobatch_mode_label = QLabel("Select Mobatch Execution Mode:")
         layout.addWidget(mobatch_mode_label)
 
-        self.mobatch_mode_group = QButtonGroup(self)
-        self.radio_python_mobatch = QRadioButton("PYTHON_MOBATCH")
-        self.radio_regular_mobatch = QRadioButton("REGULAR_MOBATCH")
-        self.radio_cmbulk_import = QRadioButton("CMBULK IMPORT")
-        self.radio_regular_mobatch.setChecked(True) # Default to regular
-
-        self.mobatch_mode_group.addButton(self.radio_python_mobatch)
-        self.mobatch_mode_group.addButton(self.radio_regular_mobatch)
-        self.mobatch_mode_group.addButton(self.radio_cmbulk_import)
-
-        mobatch_mode_layout = QHBoxLayout()
-        mobatch_mode_layout.addWidget(self.radio_python_mobatch)
-        mobatch_mode_layout.addWidget(self.radio_regular_mobatch)
-        mobatch_mode_layout.addWidget(self.radio_cmbulk_import)
-        mobatch_mode_layout.addStretch()
-        layout.addLayout(mobatch_mode_layout)
+        self.mobatch_mode_combo = QComboBox()
+        self.mobatch_mode_combo.addItems([
+            "PYTHON_MOBATCH",
+            "REGULAR_MOBATCH",
+            "REGULAR_MOBATCH_nodelete",
+            "CMBULK IMPORT"
+        ])
+        self.mobatch_mode_combo.setCurrentText("REGULAR_MOBATCH")
+        layout.addWidget(self.mobatch_mode_combo)
 
         # 2.6. Add mobatch parameters
         mobatch_layout = QHBoxLayout()
@@ -311,12 +304,7 @@ class UploadCRDialog(QDialog):
             mobatch_timeout = 30
 
         # Get mobatch execution mode
-        if self.radio_python_mobatch.isChecked():
-            mobatch_execution_mode = "PYTHON_MOBATCH"
-        elif self.radio_regular_mobatch.isChecked():
-            mobatch_execution_mode = "REGULAR_MOBATCH"
-        elif self.radio_cmbulk_import.isChecked():
-            mobatch_execution_mode = "CMBULK IMPORT"
+        mobatch_execution_mode = self.mobatch_mode_combo.currentText()
 
         # Connect the signal to the SSHManager's handler before emitting
         # The connection needs to be made by the parent (SSHManager) when creating the dialog, not here.
@@ -363,7 +351,7 @@ class MultiConnectDialog(QDialog):
         return [item.text() for item in self.session_list_widget.selectedItems()]
 
 class DownloadLogDialog(QDialog):
-    download_requested = pyqtSignal(list, str, bool)
+    download_requested = pyqtSignal(list, str, str)
 
     def __init__(self, targets, var_FOLDER_CR_value, parent=None):
         super().__init__(parent)
@@ -390,9 +378,15 @@ class DownloadLogDialog(QDialog):
         self.download_path_input = QLineEdit(f"~/{self.var_FOLDER_CR}/LOG/")
         layout.addWidget(self.download_path_input)
 
-        # Add Compare Before checkbox
-        self.compare_before_checkbox = QCheckBox("Compare Before")
-        layout.addWidget(self.compare_before_checkbox)
+        # Add Log Checking Mode ComboBox
+        self.log_check_mode_combo = QComboBox()
+        self.log_check_mode_combo.addItems([
+            "Normal Log Checking",
+            "Normal Compare Before Checking",
+            "3G_MOCN_CELL_LTE Checking"
+        ])
+        self.log_check_mode_combo.setCurrentText("Normal Log Checking")
+        layout.addWidget(self.log_check_mode_combo)
 
         # Download button
         button_layout = QHBoxLayout()
@@ -408,7 +402,7 @@ class DownloadLogDialog(QDialog):
     def emit_download_request(self):
         selected_sessions = [item.text() for item in self.session_list_widget.selectedItems()]
         download_path = self.download_path_input.text().strip()
-        compare_before = self.compare_before_checkbox.isChecked()
+        log_check_mode = self.log_check_mode_combo.currentText()
         
         if not selected_sessions:
             QMessageBox.warning(self, "No Sessions Selected", "Please select at least one SSH session.")
@@ -416,6 +410,6 @@ class DownloadLogDialog(QDialog):
         if not download_path:
             QMessageBox.warning(self, "No Download Path", "Please enter a remote path to download.")
             return
-        # Emit the signal with compare_before parameter
-        self.download_requested.emit(selected_sessions, download_path, compare_before)
+        # Emit the signal with log_check_mode parameter
+        self.download_requested.emit(selected_sessions, download_path, log_check_mode)
         self.accept()

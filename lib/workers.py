@@ -49,6 +49,7 @@ class UploadWorker(QObject):
         # Use self.var_FOLDER_CR
         remote_base_dir = f"/home/shared/{username}/{self.var_FOLDER_CR}"
         ENM_SERVER = self.target_info['session_name']
+        ENM_PASS = self.target_info['password']
         tmp_dir = os.path.join("Temp", f"tmp_upload_{ENM_SERVER}")
         if not os.path.exists("Temp"):
             os.makedirs("Temp", exist_ok=True)
@@ -72,8 +73,10 @@ class UploadWorker(QObject):
             if self.mode == "TRUE":
                 ipdb_path = os.path.join("00_IPDB", "ipdb_delim_ALLOSS_NEW.txt")
                 if not os.path.exists(ipdb_path):
-                    self.output.emit(f"[ERROR] IPDB file not found: {ipdb_path}")
-                    self.error.emit(f"IPDB file not found: {ipdb_path}")
+                    error_msg = f"[ERROR] IPDB file not found: {ipdb_path}"
+                    self.output.emit(error_msg)
+                    self.error.emit(error_msg)
+                    self.completed.emit(error_msg)
                     return
                 df_ipdb = pd.read_csv(ipdb_path, sep=';', dtype=str)
                 df_ipdb = df_ipdb.fillna("")
@@ -81,8 +84,10 @@ class UploadWorker(QObject):
             elif self.mode == "DTAC":
                 ipdb_path = os.path.join("00_IPDB", "ALL_IPDB.txt")
                 if not os.path.exists(ipdb_path):
-                    self.output.emit(f"[ERROR] IPDB file not found: {ipdb_path}")
-                    self.error.emit(f"IPDB file not found: {ipdb_path}")
+                    error_msg = f"[ERROR] IPDB file not found: {ipdb_path}"
+                    self.output.emit(error_msg)
+                    self.error.emit(error_msg)
+                    self.completed.emit(error_msg)
                     return
                 df_ipdb = pd.read_csv(ipdb_path, sep=';', dtype=str)
                 df_ipdb = df_ipdb.fillna("")
@@ -170,8 +175,25 @@ class UploadWorker(QObject):
                 if self.mobatch_execution_mode == "PYTHON_MOBATCH":
                     mobatch_script_path = os.path.join('01_SCRIPT', 'mobatch_v2.py')
                     if os.path.exists(mobatch_script_path):
-                        zipf.write(mobatch_script_path, 'mobatch_v2.py') # Add to the root of the zip
-                        self.output.emit(f"Added {mobatch_script_path} to zip.")
+                        # Read the file content
+                        with open(mobatch_script_path, 'r') as file:
+                            content = file.read()
+                        
+                        # Replace the password
+                        modified_content = content.replace('PASS_WORD_TO_CHANGE', ENM_PASS)
+                        
+                        # Create a temporary file with modified content
+                        temp_script_path = os.path.join('01_SCRIPT', f'temp_mobatch_v2_{ENM_SERVER}.py')
+                        with open(temp_script_path, 'w') as file:
+                            file.write(modified_content)
+                        
+                        # Add the modified file to zip
+                        zipf.write(temp_script_path, 'mobatch_v2.py')
+                        
+                        # Clean up temporary file
+                        os.remove(temp_script_path)
+                        
+                        self.output.emit(f"Added modified {mobatch_script_path} to zip.")
                     else:
                         self.output.emit(f"[WARNING] {mobatch_script_path} not found, skipping addition to zip.")
 
@@ -214,15 +236,16 @@ class UploadWorker(QObject):
                 return
 
             # Add step to clean up remote directory before uploading
-            self.output.emit(f"Cleaning up remote directory {remote_base_dir}/*...")
-            cleanup_command = f"rm -rf {remote_base_dir}/*"
-            stdin, stdout, stderr = self.ssh_client.exec_command(cleanup_command)
-            stdout.read()
-            stderr_output = stderr.read().decode()
-            if stderr_output:
-                 self.output.emit(f"Warning during remote cleanup: {stderr_output}")
-            else:
-                self.output.emit(f"Remote directory {remote_base_dir}/* cleaned up.")
+            if self.mobatch_execution_mode not in ["REGULAR_MOBATCH_nodelete"]:
+                self.output.emit(f"Cleaning up remote directory {remote_base_dir}/*...")
+                cleanup_command = f"rm -rf {remote_base_dir}/*"
+                stdin, stdout, stderr = self.ssh_client.exec_command(cleanup_command)
+                stdout.read()
+                stderr_output = stderr.read().decode()
+                if stderr_output:
+                     self.output.emit(f"Warning during remote cleanup: {stderr_output}")
+                else:
+                    self.output.emit(f"Remote directory {remote_base_dir}/* cleaned up.")
 
             if self._should_stop:
                 self.output.emit("Upload cancelled by user.")

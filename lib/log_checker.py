@@ -16,9 +16,10 @@ import subprocess
 from PyQt5.QtWidgets import QApplication, QProgressDialog, QMessageBox # Needed for UI elements
 from PyQt5.QtCore import QTimer
 import openpyxl
+from openpyxl.styles import PatternFill
 
 
-def check_logs_and_export_to_excel(parent=None, compare_before=False):
+def check_logs_and_export_to_excel(parent=None, log_check_mode="Normal Log Checking"):
     import os
     import pandas as pd
     import zipfile
@@ -32,9 +33,17 @@ def check_logs_and_export_to_excel(parent=None, compare_before=False):
     result_nr_check = []  # New list for NR data
     progress = None
 
-    # Load BEFORE.xlsx if compare_before is True
+    # Determine logic based on log_check_mode
+    if log_check_mode != "Normal Log Checking":
+        is_normal_check = True
+    else:
+        is_normal_check = False
+    ##is_normal_check = log_check_mode == "Normal Log Checking"
+    ##is_mocn_check = log_check_mode == "3G_MOCN_CELL_LTE Checking"
+
+    # Load BEFORE.xlsx if needed
     df_alarm_before = None
-    if compare_before:
+    if is_normal_check:
         before_path = os.path.join(os.path.dirname(__file__), '..', '00_IPDB', 'BEFORE.xlsx')
         if os.path.exists(before_path):
             try:
@@ -45,11 +54,10 @@ def check_logs_and_export_to_excel(parent=None, compare_before=False):
                     progress.setValue(0)
                     progress.setCancelButton(None)
                     progress.show()
-                
                 df_alarm_before = pd.read_excel(before_path, sheet_name='Alarm_Before')
                 df_mobatch_status = pd.read_excel(before_path, sheet_name='Status')
                 df_rnc_cell_activity = pd.read_excel(before_path, sheet_name='RNC_cell_activity')
-                
+                df_3GMOCN_cell_activity = pd.read_excel(before_path, sheet_name='3GMOCN_LTE')
                 if progress is not None:
                     progress.setValue(1)
                     progress.close()
@@ -58,6 +66,7 @@ def check_logs_and_export_to_excel(parent=None, compare_before=False):
                 if progress is not None:
                     progress.close()
                 QMessageBox.warning(parent, "Warning", f"Could not load BEFORE.xlsx: {e}")
+
 
     # Identify non-empty zip files
     loop_zip_ok_file = []
@@ -268,154 +277,281 @@ def check_logs_and_export_to_excel(parent=None, compare_before=False):
 
     # Create DataFrames
     df = pd.DataFrame(result_rows, columns=['FILE', 'FOLDER', 'NODENAME', 'REMARK', 'Count'])
+    df_connection_check = df.copy()
     out_path = os.path.join(download_dir, 'MOBATCH_Check.xlsx')
     
     # Export to Excel with multiple sheets
-    with pd.ExcelWriter(out_path, engine='openpyxl') as writer:
-        df.to_excel(writer, sheet_name='Connection_Check', index=False)
-        if result_alarm_check:
-            df_alarm = pd.DataFrame(result_alarm_check)
-            df_alarm.to_excel(writer, sheet_name='ALARM', index=False)
+    try:
+        with pd.ExcelWriter(out_path, engine='openpyxl') as writer:
+            # Check if df is not empty before writing
+            if not df.empty:
+                df.to_excel(writer, sheet_name='Connection_Check', index=False)
             
-            # Compare with before data if available
-            if df_alarm_before is not None:
-                # Rename columns in df_alarm_before to add _BEFORE suffix
-                df_alarm_before = df_alarm_before.add_suffix('_BEFORE')
+            if result_alarm_check and is_normal_check:
+                df_alarm = pd.DataFrame(result_alarm_check)
+                if not df_alarm.empty:
+                    print("SKIP EXPORT")
+                    ##df_alarm.to_excel(writer, sheet_name='ALARM', index=False)
                 
-                # Merge the dataframes on the specified keys
-                df_compare_alarm = pd.merge(
-                    df_alarm,
-                    df_alarm_before,
-                    left_on=['NODENAME', 'Severity', 'Problem', 'Object'],
-                    right_on=['NODENAME_BEFORE', 'Severity_BEFORE', 'Problem_BEFORE', 'Object_BEFORE'],
-                    how='left'
-                )
-                # Merge the dataframes on df mobatch
-                df_compare_alarm = pd.merge(
-                    df_compare_alarm,
-                    df_mobatch_status,
-                    left_on=['NODENAME'],
-                    right_on=['NODENAME'],
-                    how='left'
-                )
-
-
-                # Remove specific _BEFORE columns
-                columns_to_drop = ['NODENAME_BEFORE', 'Severity_BEFORE', 'Status_After',
-                'Object_BEFORE','Cause_BEFORE','AdditionalText_BEFORE']
-                df_compare_alarm = df_compare_alarm.drop(columns=columns_to_drop)
-                
-                # Add REMARK column based on whether the row exists in before data and Status_Before
-                def get_remark(row):
-                    if pd.notna(row['Problem_BEFORE']):
-                        return 'Alarm Existing'
-                    elif pd.isna(row['Status_Before']):
-                        return 'NO DATA BEFORE'
-                    elif row['Status_Before'] == 'Unremote':
-                        return 'Before Site Unremote'
-                    elif row['Status_Before'] == 'OK':
-                        return 'NEW Alarm'
-                    else:
-                        return 'NO DATA BEFORE'
-
-                df_compare_alarm['REMARK'] = df_compare_alarm.apply(get_remark, axis=1)
-                
-                # Export the comparison data
-                df_compare_alarm.to_excel(writer, sheet_name='ALARM_COMPARE', index=False)
-                
-                # Highlight NEW Alarm rows in yellow
-                worksheet = writer.sheets['ALARM_COMPARE']
-                for idx, row in enumerate(df_compare_alarm['REMARK'], start=2):  # start=2 because Excel is 1-based and we have header
-                    if row == 'NEW Alarm':
-                        for cell in worksheet[idx]:
-                            cell.fill = openpyxl.styles.PatternFill(start_color='FFFF00',
-                                                                  end_color='FFFF00',
-                                                                  fill_type='solid')
-                
-                # Export the before data
-                df_alarm_before.to_excel(writer, sheet_name='ALARM_BEFORE', index=False)
-        
-        # Export data for each check pattern if available
-        for item in item_check_list:
-            if item['result_list']:
-                df_data = pd.DataFrame(item['result_list'])
-                if item['sheet_name'] == 'RNC_celldata':
-                    # Remove 'UtranCell=' from MO column (case-insensitive)
-                    df_rnc_dump = df_data.copy()
-                    df_rnc_dump = df_rnc_dump[['NODENAME', 'MO']]  # Keep only NODENAME and MO columns
-                    df_rnc_dump['MO'] = df_rnc_dump['MO'].str.replace('UtranCell=', '', case=False)                    
-                    
-                    # Create source and target copies of df_rnc_dump for merging
-                    df_source = df_rnc_dump.rename(columns={'NODENAME': 'SOURCE_NODE', 'MO': 'SOURCE_MO'})
-                    df_target = df_rnc_dump.rename(columns={'NODENAME': 'TARGET_NODE', 'MO': 'TARGET_MO'})
-                    
-                    # Single merge operation for both source and target
-                    df_merged = pd.merge(
-                        pd.merge(df_rnc_cell_activity, df_source, left_on=['RNC_SOURCE', 'CELLNAME'], right_on=['SOURCE_NODE', 'SOURCE_MO'], how='left'),
-                        df_target,
-                        left_on=['RNC_TARGET', 'CELLNAME'],
-                        right_on=['TARGET_NODE', 'TARGET_MO'],
-                        how='left'
-                    )
-                    
-                    # Add remarks based on merge results
-                    df_merged['REMARK_SOURCE'] = df_merged['SOURCE_NODE'].notna().map({True: 'DEFINED', False: 'N/A'})
-                    df_merged['REMARK_TARGET'] = df_merged['TARGET_NODE'].notna().map({True: 'DEFINED', False: 'N/A'})
-                    
-                    # Drop temporary columns
-                    df_merged = df_merged.drop(columns=['SOURCE_NODE', 'SOURCE_MO', 'TARGET_NODE', 'TARGET_MO'])
-
-
-                    # Create source and target copies of df_rnc_dump for merging 
-                    ### IUBLINK CHECK
-                    df_rnc_dump = df_data.copy()
-                    df_rnc_dump = df_rnc_dump[['NODENAME', 'iublinkref']]    
-                    df_rnc_dump['iublinkref'] = df_rnc_dump['iublinkref'].str.replace('IubLink=', '', case=False)                 
-                    df_source = df_rnc_dump.rename(columns={'NODENAME': 'SOURCE_NODE', 'iublinkref': 'IUB_SOURCE'})
-                    df_target = df_rnc_dump.rename(columns={'NODENAME': 'TARGET_NODE', 'iublinkref': 'IUB_TARGET'})
-                    # Single merge operation for both source and target
-                    df_merged = pd.merge(
-                        pd.merge(df_merged, df_source, left_on=['RNC_SOURCE', 'IUBLINK'], right_on=['SOURCE_NODE', 'IUB_SOURCE'], how='left'),
-                        df_target,
-                        left_on=['RNC_TARGET', 'IUBLINK'],
-                        right_on=['TARGET_NODE', 'IUB_TARGET'],
-                        how='left'
-                    )
-                    # Add remarks based on merge results
-                    df_merged['REMARK_IUB_SOURCE'] = df_merged['SOURCE_NODE'].notna().map({True: 'IUB DEFINED', False: 'N/A'})
-                    df_merged['REMARK_IUB_TARGET'] = df_merged['TARGET_NODE'].notna().map({True: 'IUB DEFINED', False: 'N/A'})
-                    # Drop temporary columns
-                    df_merged = df_merged.drop(columns=['SOURCE_NODE', 'IUB_SOURCE', 'TARGET_NODE', 'IUB_TARGET'])
-                                       
-                                        
-
-                    
-                    # Export merged data to RNC_ACTIVITY sheet
-                    df_merged.to_excel(writer, sheet_name='RNC_ACTIVITY', index=False)
-                    df_data.to_excel(writer, sheet_name=item['sheet_name'], index=False)
-                else:
-                    df_data.to_excel(writer, sheet_name=item['sheet_name'], index=False)
-
-        # Adjust column widths for all sheets
-        for sheet_name in writer.sheets:
-            worksheet = writer.sheets[sheet_name]
-            for column in worksheet.columns:
-                max_length = 0
-                column_letter = column[0].column_letter
-                
-                # Find the maximum length of content in the column
-                for cell in column:
+                # Compare with before data if available
+                if df_alarm_before is not None and not df_alarm_before.empty:
                     try:
-                        if len(str(cell.value)) > max_length:
-                            max_length = len(str(cell.value))
-                    except:
-                        pass
-                
-                # Set column width (max 25 characters)
-                adjusted_width = min(max_length + 2, 25)  # Add 2 for padding
-                worksheet.column_dimensions[column_letter].width = adjusted_width
+                        # Rename columns in df_alarm_before to add _BEFORE suffix
+                        df_mobatch_status = df_mobatch_status.rename(columns={'REMARK': 'Mobatch_Before'})
+                        df_mobatch_status = df_mobatch_status.drop(columns=['FILE', 'FOLDER','Count'])
+                        df_alarm_before = df_alarm_before.drop(columns=['FILE', 'FOLDER'])
+                        df_alarm_before = df_alarm_before.add_suffix('_BEFORE')
+                        
+                        # Verify required columns exist before merge
+                        required_columns = ['NODENAME', 'Severity', 'Problem', 'Object']
+                        if all(col in df_alarm.columns for col in required_columns) and \
+                           all(col in df_alarm_before.columns for col in [f"{col}_BEFORE" for col in required_columns]):
+                            
+                            # Merge the dataframes on the specified keys
+                            df_compare_alarm = pd.merge(
+                                df_alarm,
+                                df_alarm_before,
+                                left_on=['NODENAME', 'Severity', 'Problem', 'Object'],
+                                right_on=['NODENAME_BEFORE', 'Severity_BEFORE', 'Problem_BEFORE', 'Object_BEFORE'],
+                                how='left'
+                            )
+                            
+                            # Initialize REMARK column if it doesn't exist
+                            ##if 'REMARK_COMPARE' not in df_compare_alarm.columns:
+                               ##df_compare_alarm['REMARK_COMPARE'] = 'NO DATA BEFORE'
+                            
+                            # Check if df_mobatch_status exists and has required columns
+                            if 'df_mobatch_status' in locals() and df_mobatch_status is not None and not df_mobatch_status.empty and 'NODENAME' in df_mobatch_status.columns:
+                                # Merge the dataframes on df mobatch
+                                df_compare_alarm = pd.merge(
+                                    df_compare_alarm,
+                                    df_mobatch_status,
+                                    left_on=['NODENAME'],
+                                    right_on=['NODENAME'],
+                                    how='left'
+                                )
+
+                            # Remove specific _BEFORE columns
+                            columns_to_drop = ['NODENAME_BEFORE', 'Severity_BEFORE',
+                            'Object_BEFORE','Cause_BEFORE','AdditionalText_BEFORE']
+                            df_compare_alarm = df_compare_alarm.drop(columns=[col for col in columns_to_drop if col in df_compare_alarm.columns])
+                            
+                            # Add REMARK column based on whether the row exists in before data and Status_Before
+                            def get_remark(row):
+                                try:
+                                    if pd.notna(row['Problem_BEFORE']):
+                                        return 'Alarm Existing'
+                                    elif pd.isna(row['Mobatch_Before']):
+                                        return 'NO DATA BEFORE'
+                                    elif row['Mobatch_Before'] == 'UNREMOTE':
+                                        return 'Before Site Unremote'
+                                    elif row['Mobatch_Before'] == 'OK':
+                                        return 'NEW Alarm'
+                                    else:
+                                        return 'NO DATA BEFORE'
+                                except KeyError:
+                                    return 'NO DATA BEFORE'
+
+                            df_compare_alarm['REMARK_COMPARE'] = df_compare_alarm.apply(get_remark, axis=1)
+                            
+                            # Export the comparison data
+                            df_compare_alarm.to_excel(writer, sheet_name='ALARM_COMPARE', index=False)
+                            
+                            try:
+                                # Create yellow fill pattern
+                                yellow_fill = PatternFill(start_color='FFFF00',
+                                                        end_color='FFFF00',
+                                                        fill_type='solid')
+                                
+                                # Get the worksheet and apply highlighting
+                                worksheet = writer.sheets['ALARM_COMPARE']
+                                
+                                # Highlight NEW Alarm rows in yellow
+                                for idx, row in enumerate(df_compare_alarm['REMARK_COMPARE'], start=2):
+                                    if row == 'NEW Alarm':
+                                        for cell in worksheet[idx]:
+                                            cell.fill = yellow_fill
+                                
+                                print("Successfully highlighted NEW Alarm rows")
+                            except Exception as e:
+                                print(f"Warning: Could not highlight cells: {str(e)}")
+                                import traceback
+                                print(traceback.format_exc())
+                            
+                            # Export the before data
+                            ##df_alarm_before.to_excel(writer, sheet_name='ALARM_BEFORE', index=False)
+                        else:
+                            print("Warning: Required columns missing for alarm comparison")
+                            print(f"Available columns in df_alarm: {df_alarm.columns.tolist()}")
+                            print(f"Available columns in df_alarm_before: {df_alarm_before.columns.tolist()}")
+                    except Exception as e:
+                        print(f"Error during alarm comparison: {str(e)}")
+                        import traceback
+                        print(traceback.format_exc())
+            
+            # Export data for each check pattern if available
+            for item in item_check_list:
+                if item['result_list']:
+                    df_data = pd.DataFrame(item['result_list'])
+                    ##df_data.to_excel(writer, sheet_name=item['sheet_name'], index=False)
+                    ##Cell_Status
+                    if item['sheet_name'] == 'Cell_Status':
+                        column_order = ['NODENAME','MO',                      
+                            'administrativestate',
+                            'operationalstate' ]
+                        df_data = df_data.assign(**{col: pd.NA for col in column_order if col not in df_data.columns})
+                        df_data = df_data[column_order]
+                        df_data.to_excel(writer, sheet_name=item['sheet_name'], index=False)
+
+                    elif (item['sheet_name'] == 'LTE_data' and 
+                        'earfcndl' in df_data.columns and 'earfcnul' in df_data.columns and log_check_mode == "3G_MOCN_CELL_LTE Checking"):
+
+                        df_mob_check = df_connection_check.copy()
+                        column_order = ['NODENAME','REMARK']                    
+                        df_mob_check = df_mob_check[column_order]
+                        df_mob_check = df_mob_check.rename(columns={'REMARK': 'REMARK_MOBATCH'})
+                        df_3GMOCN_cell_activity = pd.merge(df_3GMOCN_cell_activity, df_mob_check, left_on=['NODENAME'], right_on=['NODENAME'], how='left')
+
+
+                        df_lte_data = df_data.copy()
+                        df_lte_data['MO'] = df_lte_data['MO'].str.replace('EUtranCell(FDD|TDD)=', '', case=False, regex=True)
+
+                        column_order = ['NODENAME','MO',
+                            'earfcndl',
+                            'earfcnul',                        
+                            'administrativestate',
+                            'operationalstate' ]
+                        df_lte_data = df_lte_data.assign(**{col: pd.NA for col in column_order if col not in df_lte_data.columns})
+                        df_lte_data = df_lte_data[column_order]
+
+                        df_source = df_lte_data.rename(columns={'MO': 'SOURCE_MO_CELL'})
+                        df_target = df_lte_data.rename(columns={'MO': 'TARGET_MO_CELL'})
+
+                        # Single merge operation for both source and target
+                        df_merged = pd.merge(
+                            pd.merge(df_3GMOCN_cell_activity, df_source, left_on=['NODENAME', 'CELLNAME SOURCE'], right_on=['NODENAME', 'SOURCE_MO_CELL'], how='left', suffixes=('', '_SOURCE')),
+                            df_target,
+                            left_on=['NODENAME', 'CELLNAME TARGET'],
+                            right_on=['NODENAME', 'TARGET_MO_CELL'],
+                            how='left',
+                            suffixes=('_SOURCE', '_TARGET')
+                        )
+
+                        df_merged = df_merged.drop(columns=['SOURCE_MO_CELL', 'TARGET_MO_CELL'])
+
+                        # Remove duplicates based on specified columns for LTE_data
+                        df_merged = df_merged.drop_duplicates(subset=['NODENAME', 'CELLNAME SOURCE', 'CELLNAME TARGET'], keep='first')
+                        
+                        # Print information about removed duplicates
+                        removed_count = len(df_3GMOCN_cell_activity) - len(df_merged)
+                        if removed_count > 0:
+                            print(f"Removed {removed_count} duplicate entries from LTE_data")
+                        
+                        # Export merged data to 3G_MOCN_CELL_LTE sheet
+                        df_merged.to_excel(writer, sheet_name='3G_MOCN_CELL_LTE', index=False)
+
+
+
+                    elif item['sheet_name'] == 'RNC_celldata' and 'iublinkref' in df_data.columns and log_check_mode == "RNC_activity_check":
+                        # Remove 'UtranCell=' from MO column (case-insensitive)
+                        df_rnc_dump = df_data.copy()
+                        df_rnc_dump = df_rnc_dump[['NODENAME', 'MO']]  # Keep only NODENAME and MO columns
+                        df_rnc_dump['MO'] = df_rnc_dump['MO'].str.replace('UtranCell=', '', case=False)                    
+                        
+                        # Create source and target copies of df_rnc_dump for merging
+                        df_source = df_rnc_dump.rename(columns={'NODENAME': 'SOURCE_NODE', 'MO': 'SOURCE_MO'})
+                        df_target = df_rnc_dump.rename(columns={'NODENAME': 'TARGET_NODE', 'MO': 'TARGET_MO'})
+                        
+                        # Single merge operation for both source and target
+                        df_merged = pd.merge(
+                            pd.merge(df_rnc_cell_activity, df_source, left_on=['RNC_SOURCE', 'CELLNAME'], right_on=['SOURCE_NODE', 'SOURCE_MO'], how='left'),
+                            df_target,
+                            left_on=['RNC_TARGET', 'CELLNAME'],
+                            right_on=['TARGET_NODE', 'TARGET_MO'],
+                            how='left'
+                        )
+                        
+                        # Add remarks based on merge results
+                        df_merged['REMARK_SOURCE'] = df_merged['SOURCE_NODE'].notna().map({True: 'DEFINED', False: 'N/A'})
+                        df_merged['REMARK_TARGET'] = df_merged['TARGET_NODE'].notna().map({True: 'DEFINED', False: 'N/A'})
+                        
+                        # Drop temporary columns
+                        df_merged = df_merged.drop(columns=['SOURCE_NODE', 'SOURCE_MO', 'TARGET_NODE', 'TARGET_MO'])
+
+
+                        # Create source and target copies of df_rnc_dump for merging 
+                        ### IUBLINK CHECK
+                        df_rnc_dump = df_data.copy()
+                        df_rnc_dump = df_rnc_dump[['NODENAME', 'iublinkref']]    
+                        df_rnc_dump['iublinkref'] = df_rnc_dump['iublinkref'].str.replace('IubLink=', '', case=False)                 
+                        df_source = df_rnc_dump.rename(columns={'NODENAME': 'SOURCE_NODE', 'iublinkref': 'IUB_SOURCE'})
+                        df_target = df_rnc_dump.rename(columns={'NODENAME': 'TARGET_NODE', 'iublinkref': 'IUB_TARGET'})
+                        # Single merge operation for both source and target
+                        df_merged = pd.merge(
+                            pd.merge(df_merged, df_source, left_on=['RNC_SOURCE', 'IUBLINK'], right_on=['SOURCE_NODE', 'IUB_SOURCE'], how='left'),
+                            df_target,
+                            left_on=['RNC_TARGET', 'IUBLINK'],
+                            right_on=['TARGET_NODE', 'IUB_TARGET'],
+                            how='left'
+                        )
+                        # Add remarks based on merge results
+                        df_merged['REMARK_IUB_SOURCE'] = df_merged['SOURCE_NODE'].notna().map({True: 'IUB DEFINED', False: 'N/A'})
+                        df_merged['REMARK_IUB_TARGET'] = df_merged['TARGET_NODE'].notna().map({True: 'IUB DEFINED', False: 'N/A'})
+                        # Drop temporary columns
+                        df_merged = df_merged.drop(columns=['SOURCE_NODE', 'IUB_SOURCE', 'TARGET_NODE', 'IUB_TARGET'])
+                                           
+                                            
+
+                        
+                        # Export merged data to RNC_ACTIVITY sheet
+                        df_merged.to_excel(writer, sheet_name='RNC_ACTIVITY', index=False)
+                        ##df_data.to_excel(writer, sheet_name=item['sheet_name'], index=False)
+               
+                        
+
+            # Adjust column widths for all sheets
+            for sheet_name in writer.sheets:
+                worksheet = writer.sheets[sheet_name]
+                for column in worksheet.columns:
+                    max_length = 0
+                    column_letter = column[0].column_letter
+                    
+                    # Find the maximum length of content in the column
+                    for cell in column:
+                        try:
+                            if len(str(cell.value)) > max_length:
+                                max_length = len(str(cell.value))
+                        except:
+                            pass
+                    
+                    # Set column width (max 25 characters)
+                    adjusted_width = min(max_length + 2, 25)  # Add 2 for padding
+                    worksheet.column_dimensions[column_letter].width = adjusted_width
+
+    except Exception as e:
+        print(f"Error writing to Excel file: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
+        raise
 
     print(f"Exported check results to {out_path}")
+    # Sort sheets: Connection_Check, 3G_MOCN_CELL_LTE, Cell_Status first (if they exist), then the rest
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(out_path)
+        desired_order = ['Connection_Check', '3G_MOCN_CELL_LTE', 'Cell_Status']
+        # Move desired sheets to the front in the specified order if they exist
+        for sheet_name in reversed(desired_order):
+            if sheet_name in wb.sheetnames:
+                idx = wb.sheetnames.index(sheet_name)
+                ws = wb[sheet_name]
+                if sheet_name == '3G_MOCN_CELL_LTE':
+                    ws.sheet_properties.tabColor = "FFFF00"  # Keep yellow tab
+                wb._sheets.insert(0, wb._sheets.pop(idx))
+        wb.save(out_path)
+    except Exception as e:
+        print(f"Could not reorder sheets or set tab color: {e}")
+
     # Display a success message box after export
     if QApplication.instance() is not None:
         msg_box = QMessageBox(parent)
@@ -424,19 +560,19 @@ def check_logs_and_export_to_excel(parent=None, compare_before=False):
         msg_box.setText(f"Log check completed and exported to {out_path}\n DONT FORGET TO SAVE THE LOG BEFORE DOWNLOAD NEW LOGS")
         
         # If compare_before is True, open the Excel file after message box is closed
-        if compare_before:
-            def open_excel_file():
-                try:
-                    # Use the appropriate command based on the operating system
-                    if os.name == 'nt':  # Windows
-                        os.startfile(out_path)
-                    else:  # Linux/Mac
-                        subprocess.run(['xdg-open', out_path])
-                except Exception as e:
-                    print(f"Error opening Excel file: {e}")
+
+        def open_excel_file():
+            try:
+                # Use the appropriate command based on the operating system
+                if os.name == 'nt':  # Windows
+                    os.startfile(out_path)
+                else:  # Linux/Mac
+                    subprocess.run(['xdg-open', out_path])
+            except Exception as e:
+                print(f"Error opening Excel file: {e}")
             
-            # Connect the finished signal to open the Excel file
-            msg_box.finished.connect(open_excel_file)
+        # Connect the finished signal to open the Excel file
+        msg_box.finished.connect(open_excel_file)
         
         msg_box.exec_()
 

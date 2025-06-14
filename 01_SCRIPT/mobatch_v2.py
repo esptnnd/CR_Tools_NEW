@@ -28,7 +28,8 @@ cd_folder = sys.argv[4]
 
 # SSH credentials
 username = subprocess.check_output("whoami", shell=True).strip()
-password = "Bismillah*2024"
+###password = "Bismillah*2024"
+password = "PASS_WORD_TO_CHANGE"
 
 # Global list of threads
 threads = []
