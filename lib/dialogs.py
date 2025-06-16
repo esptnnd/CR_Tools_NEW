@@ -383,7 +383,8 @@ class DownloadLogDialog(QDialog):
         self.log_check_mode_combo.addItems([
             "Normal Log Checking",
             "Normal Compare Before Checking",
-            "3G_MOCN_CELL_LTE Checking"
+            "3G_MOCN_CELL_LTE_Checking",
+            "RNC_Rehoming_Checking"
         ])
         self.log_check_mode_combo.setCurrentText("Normal Log Checking")
         layout.addWidget(self.log_check_mode_combo)

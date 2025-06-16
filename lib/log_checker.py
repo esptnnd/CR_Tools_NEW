@@ -404,7 +404,7 @@ def check_logs_and_export_to_excel(parent=None, log_check_mode="Normal Log Check
                         df_data.to_excel(writer, sheet_name=item['sheet_name'], index=False)
 
                     elif (item['sheet_name'] == 'LTE_data' and 
-                        'earfcndl' in df_data.columns and 'earfcnul' in df_data.columns and log_check_mode == "3G_MOCN_CELL_LTE Checking"):
+                        'earfcndl' in df_data.columns and 'earfcnul' in df_data.columns and log_check_mode == "3G_MOCN_CELL_LTE_Checking"):
 
                         df_mob_check = df_connection_check.copy()
                         column_order = ['NODENAME','REMARK']                    
@@ -452,7 +452,7 @@ def check_logs_and_export_to_excel(parent=None, log_check_mode="Normal Log Check
 
 
 
-                    elif item['sheet_name'] == 'RNC_celldata' and 'iublinkref' in df_data.columns and log_check_mode == "RNC_activity_check":
+                    elif item['sheet_name'] == 'RNC_celldata' and 'iublinkref' in df_data.columns and log_check_mode == "RNC_Rehoming_Checking":
                         # Remove 'UtranCell=' from MO column (case-insensitive)
                         df_rnc_dump = df_data.copy()
                         df_rnc_dump = df_rnc_dump[['NODENAME', 'MO']]  # Keep only NODENAME and MO columns
