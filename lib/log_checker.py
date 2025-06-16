@@ -287,11 +287,11 @@ def check_logs_and_export_to_excel(parent=None, log_check_mode="Normal Log Check
             if not df.empty:
                 df.to_excel(writer, sheet_name='Connection_Check', index=False)
             
-            if result_alarm_check and is_normal_check:
+            if result_alarm_check:
                 df_alarm = pd.DataFrame(result_alarm_check)
                 if not df_alarm.empty:
                     print("SKIP EXPORT")
-                    ##df_alarm.to_excel(writer, sheet_name='ALARM', index=False)
+                    df_alarm.to_excel(writer, sheet_name='ALARM', index=False)
                 
                 # Compare with before data if available
                 if df_alarm_before is not None and not df_alarm_before.empty:
