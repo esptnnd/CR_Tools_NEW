@@ -27,7 +27,7 @@ class UploadWorker(QObject):
     error = pyqtSignal(str) # Signal when an error occurs
     output = pyqtSignal(str) # Signal to send output messages to GUI
 
-    def __init__(self, ssh_client, target_info, selected_folders, mode, selected_sessions=None, mobatch_paralel=70, mobatch_timeout=30, assigned_nodes=None, mobatch_execution_mode="REGULAR_MOBATCH", var_FOLDER_CR=None):
+    def __init__(self, ssh_client, target_info, selected_folders, mode, selected_sessions=None, mobatch_paralel=70, mobatch_timeout=30, assigned_nodes=None, mobatch_execution_mode="REGULAR_MOBATCH", mobatch_extra_argument="", var_FOLDER_CR=None):
         super().__init__()
         self.ssh_client = ssh_client
         self.target_info = target_info
@@ -39,6 +39,7 @@ class UploadWorker(QObject):
         self._should_stop = False
         self.assigned_nodes = assigned_nodes
         self.mobatch_execution_mode = mobatch_execution_mode # Store the selected mode
+        self.mobatch_extra_argument = mobatch_extra_argument # Store extra mobatch arguments
         self.var_FOLDER_CR = var_FOLDER_CR
 
     def stop(self):
@@ -153,7 +154,7 @@ class UploadWorker(QObject):
             else: # REGULAR_MOBATCH
                 # Use self.var_FOLDER_CR
                 run_cr_content += f"cd ~/{self.var_FOLDER_CR}/{folder_name}/ && " # Keep this line as it was in your provided code
-                run_cr_content += f"mobatch -p {self.mobatch_paralel} -t {self.mobatch_timeout} ~/{self.var_FOLDER_CR}/{folder_name}/sites_list_{ENM_SERVER}.txt  ~/{self.var_FOLDER_CR}/{folder_name}/command_mos.txt  ~/{self.var_FOLDER_CR}/LOG/{folder_name}/\n"
+                run_cr_content += f"mobatch -p {self.mobatch_paralel} -t {self.mobatch_timeout} {self.mobatch_extra_argument} ~/{self.var_FOLDER_CR}/{folder_name}/sites_list_{ENM_SERVER}.txt  ~/{self.var_FOLDER_CR}/{folder_name}/command_mos.txt  ~/{self.var_FOLDER_CR}/LOG/{folder_name}/\n"
 
             with open(local_run_cr_path, "w", encoding="utf-8", newline='\n') as f:
                 f.write(run_cr_content)

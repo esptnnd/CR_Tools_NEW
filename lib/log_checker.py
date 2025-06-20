@@ -58,6 +58,8 @@ def check_logs_and_export_to_excel(parent=None, log_check_mode="Normal Log Check
                 df_mobatch_status = pd.read_excel(before_path, sheet_name='Status')
                 df_rnc_cell_activity = pd.read_excel(before_path, sheet_name='RNC_cell_activity')
                 df_3GMOCN_cell_activity = pd.read_excel(before_path, sheet_name='3GMOCN_LTE')
+
+                df_rnc_cell_activity = df_rnc_cell_activity.applymap(lambda x: x.strip() if isinstance(x, str) else x)                
                 if progress is not None:
                     progress.setValue(1)
                     progress.close()
@@ -141,7 +143,14 @@ def check_logs_and_export_to_excel(parent=None, log_check_mode="Normal Log Check
             'end_marker': '####END_LOG_CELL_3G',
             'sheet_name': 'RNC_celldata',
             'result_list': []
-        }
+        },
+        {
+            'name': 'RNC_IUBdata',
+            'start_marker': '####LOG_IUB_RNC_3G',
+            'end_marker': '####END_LOG_IUB_RNC_3G',
+            'sheet_name': 'RNC_IUBdata',
+            'result_list': []
+        }        
         
     ]
 
@@ -453,15 +462,28 @@ def check_logs_and_export_to_excel(parent=None, log_check_mode="Normal Log Check
 
 
                     elif item['sheet_name'] == 'RNC_celldata' and 'iublinkref' in df_data.columns and log_check_mode == "RNC_Rehoming_Checking":
-                        # Remove 'UtranCell=' from MO column (case-insensitive)
+                        # Remove 'UtranCell=' from MO column (case-insensitive)                    
                         df_rnc_dump = df_data.copy()
                         df_rnc_dump = df_rnc_dump[['NODENAME', 'MO']]  # Keep only NODENAME and MO columns
-                        df_rnc_dump['MO'] = df_rnc_dump['MO'].str.replace('UtranCell=', '', case=False)                    
+                        df_rnc_dump['MO'] = df_rnc_dump['MO'].str.replace('UtranCell=', '', case=False)
+
+                        cell_status_data = pd.DataFrame(next(item['result_list'] for item in item_check_list if item['sheet_name'] == 'Cell_Status'))
+                        cell_status_data['STATE'] = cell_status_data['administrativestate'].astype(str) + ' ' + cell_status_data['operationalstate'].astype(str)
+                        cell_status_data['MO'] = cell_status_data['MO'].str.replace('UtranCell=', '', case=False)
+                        column_order = ['NODENAME','MO','STATE']
+                        cell_status_data = cell_status_data[column_order]
+                        ##df_merged = pd.merge(df_merged, cell_status_data, left_on=['RNC_SOURCE', 'CELLNAME'], right_on=['SOURCE_NODE', 'IUB_SOURCE'], how='left')
                         
+                        
+                        # Create source and target copies of df_rnc_dump for merging ##asli nya nanti kita skip kalau udah aman
+                        ##df_source = df_rnc_dump.rename(columns={'NODENAME': 'SOURCE_NODE', 'MO': 'SOURCE_MO'})
+                        ##df_target = df_rnc_dump.rename(columns={'NODENAME': 'TARGET_NODE', 'MO': 'TARGET_MO'})
+
                         # Create source and target copies of df_rnc_dump for merging
-                        df_source = df_rnc_dump.rename(columns={'NODENAME': 'SOURCE_NODE', 'MO': 'SOURCE_MO'})
-                        df_target = df_rnc_dump.rename(columns={'NODENAME': 'TARGET_NODE', 'MO': 'TARGET_MO'})
-                        
+                        df_source = cell_status_data.rename(columns={'NODENAME': 'SOURCE_NODE', 'MO': 'SOURCE_MO', 'STATE': 'SOURCE_STATE'})
+                        df_target = cell_status_data.rename(columns={'NODENAME': 'TARGET_NODE', 'MO': 'TARGET_MO', 'STATE': 'TARGET_STATE'})
+
+
                         # Single merge operation for both source and target
                         df_merged = pd.merge(
                             pd.merge(df_rnc_cell_activity, df_source, left_on=['RNC_SOURCE', 'CELLNAME'], right_on=['SOURCE_NODE', 'SOURCE_MO'], how='left'),
@@ -472,8 +494,8 @@ def check_logs_and_export_to_excel(parent=None, log_check_mode="Normal Log Check
                         )
                         
                         # Add remarks based on merge results
-                        df_merged['REMARK_SOURCE'] = df_merged['SOURCE_NODE'].notna().map({True: 'DEFINED', False: 'N/A'})
-                        df_merged['REMARK_TARGET'] = df_merged['TARGET_NODE'].notna().map({True: 'DEFINED', False: 'N/A'})
+                        ##df_merged['REMARK_SOURCE'] = df_merged['SOURCE_NODE'].notna().map({True: 'DEFINED', False: 'N/A'})
+                        ##df_merged['REMARK_TARGET'] = df_merged['TARGET_NODE'].notna().map({True: 'DEFINED', False: 'N/A'})
                         
                         # Drop temporary columns
                         df_merged = df_merged.drop(columns=['SOURCE_NODE', 'SOURCE_MO', 'TARGET_NODE', 'TARGET_MO'])
@@ -486,19 +508,40 @@ def check_logs_and_export_to_excel(parent=None, log_check_mode="Normal Log Check
                         df_rnc_dump['iublinkref'] = df_rnc_dump['iublinkref'].str.replace('IubLink=', '', case=False)                 
                         df_source = df_rnc_dump.rename(columns={'NODENAME': 'SOURCE_NODE', 'iublinkref': 'IUB_SOURCE'})
                         df_target = df_rnc_dump.rename(columns={'NODENAME': 'TARGET_NODE', 'iublinkref': 'IUB_TARGET'})
+
+                        ###RNC_IUBdata
+                        cell_IUB_data = pd.DataFrame(next(item['result_list'] for item in item_check_list if item['sheet_name'] == 'RNC_IUBdata'))
+                        cell_IUB_data['STATE'] = cell_IUB_data['administrativestate'].astype(str) + ' ' + cell_IUB_data['operationalstate'].astype(str)
+                        cell_IUB_data['MO'] = cell_IUB_data['MO'].str.replace('IubLink=', '', case=False)
+                        column_order = ['NODENAME','MO','STATE']
+                        cell_IUB_data = cell_IUB_data[column_order] 
+                        # Create source and target copies of df_rnc_dump for merging
+                        df_source = cell_IUB_data.rename(columns={'NODENAME': 'SOURCE_NODE', 'MO': 'SOURCE_MO', 'STATE': 'SOURCE_IUB_STATE'})
+                        df_target = cell_IUB_data.rename(columns={'NODENAME': 'TARGET_NODE', 'MO': 'TARGET_MO', 'STATE': 'TARGET_IUB_STATE'})
+
+
                         # Single merge operation for both source and target
                         df_merged = pd.merge(
-                            pd.merge(df_merged, df_source, left_on=['RNC_SOURCE', 'IUBLINK'], right_on=['SOURCE_NODE', 'IUB_SOURCE'], how='left'),
+                            pd.merge(df_merged, df_source, left_on=['RNC_SOURCE', 'IUBLINK'], right_on=['SOURCE_NODE', 'SOURCE_MO'], how='left'),
                             df_target,
                             left_on=['RNC_TARGET', 'IUBLINK'],
-                            right_on=['TARGET_NODE', 'IUB_TARGET'],
+                            right_on=['TARGET_NODE', 'TARGET_MO'],
                             how='left'
                         )
+                        df_merged = df_merged.drop(columns=['SOURCE_NODE', 'SOURCE_MO', 'TARGET_NODE', 'TARGET_MO'])
+                        for col in ['SOURCE_STATE', 'TARGET_STATE', 'SOURCE_IUB_STATE','TARGET_IUB_STATE']: df_merged[col] = df_merged[col].fillna("N/A") if col in df_merged.columns else df_merged.get(col)
+
                         # Add remarks based on merge results
-                        df_merged['REMARK_IUB_SOURCE'] = df_merged['SOURCE_NODE'].notna().map({True: 'IUB DEFINED', False: 'N/A'})
-                        df_merged['REMARK_IUB_TARGET'] = df_merged['TARGET_NODE'].notna().map({True: 'IUB DEFINED', False: 'N/A'})
+                        ##df_merged['REMARK_IUB_SOURCE'] = df_merged['SOURCE_NODE'].notna().map({True: 'IUB DEFINED', False: 'N/A'})
+                        ##df_merged['REMARK_IUB_TARGET'] = df_merged['TARGET_NODE'].notna().map({True: 'IUB DEFINED', False: 'N/A'})
                         # Drop temporary columns
-                        df_merged = df_merged.drop(columns=['SOURCE_NODE', 'IUB_SOURCE', 'TARGET_NODE', 'IUB_TARGET'])
+                        ##df_merged = df_merged.drop(columns=['SOURCE_NODE', 'IUB_SOURCE', 'TARGET_NODE', 'IUB_TARGET'])
+
+                        ####
+
+
+                        ###remove duplicate
+                        df_merged = df_merged.drop_duplicates(subset=['CELLNAME', 'IUBLINK', 'RNC_SOURCE', 'RNC_TARGET'], keep='first')
                                            
                                             
 

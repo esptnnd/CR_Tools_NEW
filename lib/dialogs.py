@@ -142,7 +142,7 @@ class ScreenSelectionDialog(QDialog):
 
 
 class UploadCRDialog(QDialog):
-    upload_requested = pyqtSignal(list, list, str, int, int, str, list)
+    upload_requested = pyqtSignal(list, list, str, int, int, str, str, list)
 
     def __init__(self, ssh_targets, parent=None, ssh_manager=None):
         print('[PROFILE] UploadCRDialog __init__ start')
@@ -208,10 +208,15 @@ class UploadCRDialog(QDialog):
         self.mobatch_timeout_input = QLineEdit("30")
         self.mobatch_timeout_input.setPlaceholderText("mobatch_timeout")
         self.mobatch_timeout_input.setFixedWidth(80)
+        self.mobatch_extra_argument_input = QLineEdit("")
+        self.mobatch_extra_argument_input.setPlaceholderText("mobatch_extra_argument (e.g. -v use_complete_mom=1)")
+        self.mobatch_extra_argument_input.setFixedWidth(220)
         mobatch_layout.addWidget(QLabel("mobatch_paralel:"))
         mobatch_layout.addWidget(self.mobatch_paralel_input)
         mobatch_layout.addWidget(QLabel("mobatch_timeout:"))
         mobatch_layout.addWidget(self.mobatch_timeout_input)
+        mobatch_layout.addWidget(QLabel("mobatch_extra_argument:"))
+        mobatch_layout.addWidget(self.mobatch_extra_argument_input)
         mobatch_layout.addStretch()
         layout.addLayout(mobatch_layout)
 
@@ -302,23 +307,13 @@ class UploadCRDialog(QDialog):
             mobatch_timeout = int(self.mobatch_timeout_input.text())
         except Exception:
             mobatch_timeout = 30
+        mobatch_extra_argument = self.mobatch_extra_argument_input.text().strip()
 
         # Get mobatch execution mode
         mobatch_execution_mode = self.mobatch_mode_combo.currentText()
 
-        # Connect the signal to the SSHManager's handler before emitting
-        # The connection needs to be made by the parent (SSHManager) when creating the dialog, not here.
-        # Removing the connect and disconnect calls from here.
-        # if self.ssh_manager:
-        #      self.upload_requested.connect(self.ssh_manager.initiate_multi_session_upload)
-
         # Emit the signal with the full paths of selected subfolders and sessions
-        # Assuming ssh_manager is the parent and has the slot connected
-        self.upload_requested.emit(selected_folders_full_paths, selected_sessions, selected_mode, mobatch_paralel, mobatch_timeout, mobatch_execution_mode, self.ssh_targets)
-
-        # Disconnect the signal after emitting to prevent multiple connections
-        # if self.ssh_manager:
-        #      self.upload_requested.disconnect(self.ssh_manager.initiate_multi_session_upload)
+        self.upload_requested.emit(selected_folders_full_paths, selected_sessions, selected_mode, mobatch_paralel, mobatch_timeout, mobatch_execution_mode, mobatch_extra_argument, self.ssh_targets)
 
         self.accept() # Close the dialog after emitting the signal
 
