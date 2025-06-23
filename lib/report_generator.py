@@ -80,45 +80,39 @@ def process_single_log(args):
             for line in iter(mm.readline, b''):
                 line = line.decode(errors='ignore')
                 cmd_match = pattern_cmd.search(line)
-                cmd_get_1 = cmd_match.group(1).strip() if cmd_match else line_execute
-
-                run_match = pattern_run_script.search(line)
-                if run_match:
-                    type_script = run_match.group(1)
-
-                truni_match = pattern_truni.search(cmd_get_1)
-                if truni_match:
-                    truni_script = truni_match.group(1)
-
+                cmd_get_1 = cmd_match.group(1).strip() if cmd_match else line_execute                
+                # --- RNC CR SCRIPT (truni/trun) ---
+                type_script = re.search(r".*?run\s+.*?\$nodename\_(.*?).mos$", line, re.IGNORECASE).group(1) if re.search(r".*?run\s+.*?\$nodename\_(.*?).mos$", line, re.IGNORECASE) else type_script
+                truni_script = re.search(r".*?(trun|truni)\s+(.*?)$", line, re.IGNORECASE).group(1) if re.search(r".*?(trun|truni)\s+(.*?)$", line, re.IGNORECASE) else truni_script
                 if truni_script != "NULL":
-                    for key in ["trun", "truni"]:
-                        tsr_match = re.search(fr".*?{key}\s+(.*?).mo$", line, re.IGNORECASE)
-                        if tsr_match:
-                            type_script_rnc = tsr_match.group(1)
-
-                    for pattern in [pattern_create, pattern_delete, pattern_set]:
-                        cmd = pattern.search(line)
-                        if cmd:
-                            line_execute = cmd.group(1)
-
-                    tag = pattern_tag.search(line)
-                    if tag:
-                        TAG_RESULT = tag.group(1)
+                    type_script_rnc = (m.group(2) if (m := re.search(r".*?trun(i)?\s+(.*?).mo(s)?$", line, re.IGNORECASE)) else type_script_rnc)
+                    line_execute = re.search(r"^(CREATE.*?)$", line, re.IGNORECASE).group(1) if re.search(r"^(CREATE.*?)$", line, re.IGNORECASE) else line_execute
+                    line_execute = re.search(r"^(DELETE.*?)$", line, re.IGNORECASE).group(1) if re.search(r"^(DELETE.*?)$", line, re.IGNORECASE) else line_execute
+                    line_execute = re.search(r"^(SET\s+.*?)$", line, re.IGNORECASE).group(1) if re.search(r"^(SET\s+.*?)$", line, re.IGNORECASE) else line_execute
+                    if re.search(r"^!!!!.*?TAG\s+:\"(.*?)\".*?$", line, re.IGNORECASE):
+                        TAG_RESULT = re.search(r"^!!!!.*?TAG\s+:\"(.*?)\".*?$", line, re.IGNORECASE).group(1)
                         TAG_RESULT_FULL = line.rstrip()
-
-                    tag_alt = pattern_alt_tag.search(line)
-                    if tag_alt:
-                        TAG_RESULT = tag_alt.group(1)
+                    else:
+                        TAG_RESULT = TAG_RESULT
+                        TAG_RESULT_FULL = TAG_RESULT_FULL
+                    if re.search(r"^>>>\s+(\[.*?\]).*?$", line, re.IGNORECASE):
+                        TAG_RESULT = re.search(r"^>>>\s+(\[.*?\]).*?$", line, re.IGNORECASE).group(1)
                         TAG_RESULT_FULL = line.rstrip()
-
-                    if len(line.rstrip()) == 0 and line_execute != "NULL":
-                        if len(TAG_RESULT_FULL.rstrip()) == 0:
+                    else:
+                        TAG_RESULT = TAG_RESULT
+                        TAG_RESULT_FULL = TAG_RESULT_FULL
+                    if (len(line.rstrip()) == 0 and line_execute != "NULL"):
+                        if(len(TAG_RESULT_FULL.rstrip()) == 0):
                             TAG_RESULT = "Executed"
-                        local_log_data.append((selected_file, node_log, type_script_rnc, line_execute.strip(), TAG_RESULT, TAG_RESULT_FULL, []))
+                        TAG_REPORT, TAG_COLOR = CATEGORY_CHECKING1(TAG_RESULT)
+                        att_list = []
+                        att_list.append(TAG_RESULT_FULL.strip())
+                        local_log_data.append((selected_file, node_log, type_script_rnc, line_execute.strip(), TAG_REPORT, TAG_RESULT, att_list))
                         line_execute = "NULL"
                         TAG_RESULT = "NULL"
                         TAG_RESULT_FULL = ""
-
+                # --- END RNC CR SCRIPT (truni/trun) ---
+                # The rest of the original logic (for BB CR SCRIPT and others) remains unchanged from before.
                 if truni_script == "NULL":
                     if pattern_cmd.match(line):
                         if number_tag == 1:
@@ -149,6 +143,8 @@ def process_single_log(args):
                     local_log_data.append((selected_file, node_log, "", "", "UNREMOTE", line.strip(), ""))
                 if re.search(r"(?i)tbac\s*control\s*-\s*unauthori[sz]ed\s*network\s*element", line):
                     local_log_data.append((selected_file, node_log, "", "", "UNREMOTE", line.strip(), ""))
+
+
 
     except Exception as e:
         print(f"Error processing {filename}: {e}")
