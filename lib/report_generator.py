@@ -80,7 +80,7 @@ def process_single_log(args):
             for line in iter(mm.readline, b''):
                 line = line.decode(errors='ignore')
                 cmd_match = pattern_cmd.search(line)
-                cmd_get_1 = cmd_match.group(1).strip() if cmd_match else line_execute                
+                cmd_get_1 = cmd_match.group(1).strip() if cmd_match else line_execute
                 # --- RNC CR SCRIPT (truni/trun) ---
                 type_script = re.search(r".*?run\s+.*?\$nodename\_(.*?).mos$", line, re.IGNORECASE).group(1) if re.search(r".*?run\s+.*?\$nodename\_(.*?).mos$", line, re.IGNORECASE) else type_script
                 truni_script = re.search(r".*?(trun|truni)\s+(.*?)$", line, re.IGNORECASE).group(1) if re.search(r".*?(trun|truni)\s+(.*?)$", line, re.IGNORECASE) else truni_script
@@ -93,6 +93,8 @@ def process_single_log(args):
                         TAG_RESULT = re.search(r"^!!!!.*?TAG\s+:\"(.*?)\".*?$", line, re.IGNORECASE).group(1)
                         TAG_RESULT_FULL = line.rstrip()
                     else:
+
+                        
                         TAG_RESULT = TAG_RESULT
                         TAG_RESULT_FULL = TAG_RESULT_FULL
                     if re.search(r"^>>>\s+(\[.*?\]).*?$", line, re.IGNORECASE):
@@ -152,33 +154,6 @@ def process_single_log(args):
     print(f"Processed {filename} in {end_time - start_time:.2f}s")
     return local_log_data
 
-
-class WorkerThread(QThread):
-    finished = pyqtSignal(str, list, str, str)
-    overall_progress = pyqtSignal(int)
-
-    def __init__(self, file_path, selected_file, output_dir):
-        super().__init__()
-        self.file_path = file_path
-        self.selected_file = selected_file
-        self.output_dir = output_dir
-
-    def run(self):
-        folder_path = os.path.join(self.file_path, self.selected_file)
-        log_files = [f for f in os.listdir(folder_path) if f.lower().endswith('.log')]
-        total_files = len(log_files)
-
-        log_data = []
-        args_list = [(f, folder_path, self.selected_file) for f in log_files]
-
-        with ProcessPoolExecutor() as executor:
-            futures = {executor.submit(process_single_log, args): args[0] for args in args_list}
-            for i, future in enumerate(as_completed(futures), 1):
-                result = future.result()
-                log_data.extend(result)
-                self.overall_progress.emit(int((i / total_files) * 100))
-
-        self.finished.emit(self.file_path, log_data, self.selected_file, self.output_dir)
 
 
 
@@ -267,28 +242,30 @@ class ExcelReaderApp(QMainWindow):
         layout = QVBoxLayout(self.central_widget)
 
         placeholder_style = "font-style: italic;"
-        # self.input_directory = QLineEdit(self)
-        # # self.input_directory.setGeometry(X, Y, Length, Hight) 
-        # self.input_directory.setPlaceholderText("Input Directory to save CR_FOLDER on ENM: e.g: /home/username/")
-        
         self.browse_button = QPushButton("Browse", self)
         layout.addWidget(self.browse_button)
         self.browse_button.clicked.connect(self.open_folder_dialog)
 
-        # self.file_list = QListWidget(self)
-        # # self.file_list = QListWidgetItem(self)
-        # layout.addWidget(self.file_list)
-
+        # Allow multi-selection for folders
         self.file_list = QListWidget(self)
-        self.file_list.setSelectionMode(QAbstractItemView.MultiSelection)  # Mengaktifkan modus seleksi multiple
-        ##self.file_list.setSelectionMode(QAbstractItemView.SingleSelection) 
+        self.file_list.setSelectionMode(QAbstractItemView.MultiSelection)
+        # Style selected items: white, bold text and distinct background
+        self.file_list.setStyleSheet('''
+            QListWidget::item:selected {
+                background: #0078d7;
+                color: white;
+                font-weight: bold;
+            }
+            QListWidget::item {
+                color: black;
+            }
+        ''')
         layout.addWidget(self.file_list)
         
         # Add text box input
         self.input_directory = QLineEdit(self)
         self.input_directory.setPlaceholderText("Input Directory to upload script on ENM: e.g: /home/shared/username/sample_folder or ~/sample_folder")
         layout.addWidget(self.input_directory)        
-
 
         self.read_button = QPushButton("Generate Report", self)
         layout.addWidget(self.read_button)
@@ -301,6 +278,14 @@ class ExcelReaderApp(QMainWindow):
         self.progress_bar = QProgressBar()
         layout.addWidget(self.progress_bar)
 
+        # Add phase label
+        self.phase_label = QLabel("Ready")
+        self.phase_label.setStyleSheet("color: white; font-weight: bold;")
+        layout.addWidget(self.phase_label)
+        # Add details label
+        self.details_label = QLabel("")
+        self.details_label.setStyleSheet("color: white; font-weight: bold;")
+        layout.addWidget(self.details_label)
 
         self.show()
 
@@ -321,96 +306,37 @@ class ExcelReaderApp(QMainWindow):
 
 
     def update_overall_progress(self, value):
+        print(f"[DEBUG] Progress bar update: {value}")
         self.progress_bar.setValue(value)
 
     def on_thread_finished(self, file_path, log_data , selected_file , output_dir):
-        ##append_data = []
-        ##print(os.path.join(output_dir,selected_file ))
         report_file = f"{output_dir}\{selected_file}.xlsx"
-        
-        write_logs_to_excel(log_data, report_file, selected_file)
-        
-        ##self.show_success_message(f"Your Report Available On :\n{report_file}")
-        print(f"Your Report Available On :\n{report_file}\n\n")
-        ##print(log_data[0][0])
-        ##print(cek)
-        self.append_log_data.extend(log_data)
-        
-        # Check if all files are processed
-        if self.file_queue.empty():
-            self.processing_finished.emit()  # Signal that all files are processed
-            work_dir = os.getcwd()
-            self.summary_excel = os.path.join(work_dir, "output", "Summary_" + self.date_report +".xlsx")
-            write_logs_to_excel(self.append_log_data, self.summary_excel, "NONAME")
-            # 1. Create the DataFrame from log data with tqdm
-            data_rows = [row for row in tqdm(self.append_log_data, desc="Creating DataFrame rows")]
-            df = pd.DataFrame(data_rows, columns=["CR", "Site", "Script", "Command", "Report", "TAG", "Full_cmd"])
-            column_names = list(df.columns)
-
-            # Enable tqdm for pandas
-            tqdm.pandas()
-
-            pattern = r"^Total.*?MOs\s+attempted,\s+([0-9]{1,5})\s+MOs\s+(.*?)$"
-            regex = re.compile(pattern)
-
-            # Function to apply regex and format string
-            def format_report(value):
-                match = regex.match(str(value))
-                if match:
-                    attempted = int(match.group(1))
-                    result = match.group(2)
-                    if attempted == 0:
-                        return value
-                    else:    
-                        return f"TOTAL X MOs {result}"
-                return value  # This won't be used since we only apply to matching rows
-
-            # Only apply to rows that match the regex
-            mask = df['Report'].astype(str).str.match(pattern)
-            df.loc[mask, 'Report'] = df.loc[mask, 'Report'].progress_apply(format_report)               
-
-            # 2. Build pivot_df manually with tqdm
-            grouped = df.groupby([column_names[0], column_names[4]])  # ['CR', 'Report']
-            pivot_data = []
-
-            for (cr, report), group in tqdm(grouped, desc="Building pivot_df", total=grouped.ngroups):
-                pivot_data.append({
-                    column_names[0]: cr,
-                    column_names[4]: report,
-                    'Count Result': len(group)
-                })
-
-            pivot_df = pd.DataFrame(pivot_data)
-
-            # 3. Build pivot_df2 manually with tqdm
-            grouped2 = df.groupby(column_names[0])  # ['CR']
-            pivot_data2 = []
-
-            for cr, group in tqdm(grouped2, desc="Building pivot_df2", total=grouped2.ngroups):
-                pivot_data2.append({
-                    column_names[0]: cr,
-                    'Total': len(group)
-                })
-
-            pivot_df2 = pd.DataFrame(pivot_data2)
-
-            # 4. Merge and calculate percentage with progress bar
-            merged_df = pd.merge(pivot_df, pivot_df2, on='CR', how='left')
-
-            # Add progress bar while calculating percentage
-            merged_df['Percentage'] = [
-                '{:.1f}%'.format((count / total) * 100)
-                for count, total in tqdm(zip(merged_df['Count Result'], merged_df['Total']),
-                                         total=len(merged_df), desc="Calculating percentage")
-            ]
-
-            # Now you can proceed with further logic like saving or parsing summary
-            self.parse_summary(merged_df, self.summary_excel)
-            self.show_success_message("ALL DONE")
-        
-            ##print(self.append_log_data)
-
-     
+        print("[DEBUG] About to start ExcelWriterThread")
+        self.writer_thread = ExcelWriterThread(log_data, report_file, selected_file)
+        self.writer_thread.progress_changed.connect(self.update_overall_progress)
+        self.writer_thread.phase_changed.connect(self.update_phase_label)
+        self.writer_thread.details_changed.connect(self.update_details_label)
+        def on_file_written(_):
+            print(f"Your Report Available On :\n{report_file}\n\n")
+            self.append_log_data.extend(log_data)
+            # Check if all files are processed
+            if self.file_queue.empty():
+                self.processing_finished.emit()  # Signal that all files are processed
+                work_dir = os.getcwd()
+                self.summary_excel = os.path.join(work_dir, "output", "Summary_" + self.date_report + ".xlsx")
+                # Use ExcelWriterThread for summary report (all heavy work in thread)
+                self.summary_writer_thread = ExcelWriterThread(self.append_log_data, self.summary_excel, "NONAME")
+                self.summary_writer_thread.progress_changed.connect(self.update_overall_progress)
+                self.summary_writer_thread.phase_changed.connect(self.update_phase_label)
+                self.summary_writer_thread.details_changed.connect(self.update_details_label)
+                def on_summary_written(_):
+                    # Now you can proceed with further logic like saving or parsing summary
+                    self.parse_summary(pd.DataFrame(self.append_log_data, columns=["CR", "Site", "Script", "Command", "Report", "TAG", "Full_cmd"]), self.summary_excel)
+                    self.show_success_message("ALL DONE")
+                self.summary_writer_thread.finished.connect(on_summary_written)
+                self.summary_writer_thread.start()
+        self.writer_thread.finished.connect(on_file_written)
+        self.writer_thread.start()
 
     def parse_summary(self, pivot_df, excel_temp):
         workbook = openpyxl.load_workbook(excel_temp)
@@ -478,16 +404,17 @@ class ExcelReaderApp(QMainWindow):
     def read_selected_excel(self):
         self.file_queue.queue.clear()  # Clear existing queue
 
-
         selected_items = self.file_list.selectedItems()
-        
         if not selected_items:
             return
 
+        # Queue all selected folders for processing
         for item in selected_items:
             self.file_queue.put(item.text())
 
-        # Start processing files
+        # Set progress bar to 1% to show progress is ongoing before any log reading starts
+        self.progress_bar.setValue(1)
+        # Start processing files (log reading is already threaded)
         self.process_next_file()
 
     def process_next_file(self):
@@ -496,22 +423,17 @@ class ExcelReaderApp(QMainWindow):
             file_path = os.path.join(self.folder_path)
             work_dir = os.getcwd()
             folder_enm = self.input_directory.text()
-            # Check if the input_directory is empty
-         
-            ##self.output_dir = os.path.join(work_dir, "output")
             self.output_dir = os.path.join(work_dir, "output")
             self.result_dir = os.path.join(work_dir, "result")
-            
-
             try:
                 self.progress_bar.setValue(0)
                 self.worker_thread = WorkerThread(file_path, selected_file, self.output_dir)
                 self.worker_thread.overall_progress.connect(self.update_overall_progress)
+                self.worker_thread.phase_changed.connect(self.update_phase_label)
+                self.worker_thread.details_changed.connect(self.update_details_label)
                 self.worker_thread.finished.connect(self.on_thread_finished)
                 self.worker_thread.finished.connect(self.process_next_file)
                 self.worker_thread.start()
-                
-                
             except Exception as e:
                 print(f"Error reading Excel file: {e}")
                 self.show_error_message(f"Error reading Excel file: {e}")
@@ -543,7 +465,7 @@ class ExcelReaderApp(QMainWindow):
 from tqdm import tqdm
 
 # Function to write log data to an Excel file
-def write_logs_to_excel(log_data, excel_filename, selected_file):
+def write_logs_to_excel(log_data, excel_filename, selected_file, progress_callback=None):
     # Create a new Excel workbook
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -561,12 +483,8 @@ def write_logs_to_excel(log_data, excel_filename, selected_file):
         cell.fill = PatternFill(start_color="0EA1DD", end_color="0EA1DD", fill_type="solid")
         ws.column_dimensions[openpyxl.utils.get_column_letter(col_num)].width = width
 
-    # Write log data with tqdm progress bar
-    for idx, (FILE_LOG, Site, type_script, line_execute, TAG_RESULT, line_full_log, att_list) in tqdm(
-        enumerate(log_data, start=2),
-        total=len(log_data),
-        desc="Writing to Excel"
-    ):
+    total = len(log_data)
+    for idx, (FILE_LOG, Site, type_script, line_execute, TAG_RESULT, line_full_log, att_list) in enumerate(log_data, start=2):
         log1 = illegal_char_pattern.sub('', line_full_log)
         TAG_REMARK, TAG_COLOR = CATEGORY_CHECKING(TAG_RESULT)
         line_execute = next((m.group(1) for line in att_list if (m := re.match(r"^[A-Z0-9_\-]{4,180}>(.*?)$", line))), "") if line_execute == "NULL" else line_execute
@@ -587,9 +505,11 @@ def write_logs_to_excel(log_data, excel_filename, selected_file):
         ws.cell(row=idx, column=6, value=log1).font = Font(size=9)
         ws.cell(row=idx, column=7, value=type_script).font = Font(size=9)
         ws.cell(row=idx, column=8, value='\n'.join(att_list)).font = Font(size=9)
-
-        # Apply color fill to the "Report" column
         ws.cell(row=idx, column=5).fill = PatternFill(start_color=TAG_COLOR, end_color=TAG_COLOR, fill_type="solid")
+        # GUI progress update
+        if progress_callback is not None:
+            percent = int((idx-1)/total*100)
+            progress_callback(percent)
 
     # Create a DataFrame from the log data for pivot tables
     df = pd.DataFrame(log_data, columns=["CR", "Site", "Script", "Command", "TAG", "Full Log", "Attachments"])
@@ -599,8 +519,7 @@ def write_logs_to_excel(log_data, excel_filename, selected_file):
     pivot_df = pd.pivot_table(
         df,
         values='Command',
-        index=['Site'],
-        columns=['Report'],
+        index=['Site','Report'],
         aggfunc='count',
         fill_value=0
     )
@@ -612,7 +531,7 @@ def write_logs_to_excel(log_data, excel_filename, selected_file):
     pivot_sheet = wb.create_sheet(title="Pivot Table")
     
     # Write pivot table headers
-    headers = ['Site'] + list(pivot_df.columns)
+    headers = ['Site', 'Report'] + list(pivot_df.columns)
     for col_num, header in enumerate(headers, start=1):
         cell = pivot_sheet.cell(row=1, column=col_num, value=header)
         cell.font = Font(size=12, bold=True)
@@ -620,9 +539,10 @@ def write_logs_to_excel(log_data, excel_filename, selected_file):
         pivot_sheet.column_dimensions[openpyxl.utils.get_column_letter(col_num)].width = 15
 
     # Write pivot table data
-    for row_idx, (site, row) in enumerate(pivot_df.iterrows(), start=2):
+    for row_idx, ((site, report), row) in enumerate(pivot_df.iterrows(), start=2):
         pivot_sheet.cell(row=row_idx, column=1, value=site).font = Font(size=9, bold=True)
-        for col_idx, value in enumerate(row, start=2):
+        pivot_sheet.cell(row=row_idx, column=2, value=report).font = Font(size=9, bold=True)
+        for col_idx, value in enumerate(row, start=3):
             cell = pivot_sheet.cell(row=row_idx, column=col_idx, value=value)
             cell.font = Font(size=9)
             cell.border = Border(
@@ -635,7 +555,7 @@ def write_logs_to_excel(log_data, excel_filename, selected_file):
     # Add total row
     total_row = len(pivot_df) + 2
     pivot_sheet.cell(row=total_row, column=1, value="Total").font = Font(size=9, bold=True)
-    for col_idx, value in enumerate(pivot_df.sum(), start=2):
+    for col_idx, value in enumerate(pivot_df.sum(), start=3):
         cell = pivot_sheet.cell(row=total_row, column=col_idx, value=value)
         cell.font = Font(size=9, bold=True)
         cell.fill = PatternFill(start_color="0EA1DD", end_color="0EA1DD", fill_type="solid")
@@ -741,3 +661,35 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     ex = ExcelReaderApp()
     sys.exit(app.exec_())
+
+class ExcelWriterThread(QThread):
+    progress_changed = pyqtSignal(int)
+    finished = pyqtSignal(str)  # Pass the output file path
+    phase_changed = pyqtSignal(str)
+    details_changed = pyqtSignal(str)
+
+    def __init__(self, log_data, excel_filename, selected_file, summary_data=None, summary_filename=None, summary_mode=False):
+        super().__init__()
+        self.log_data = log_data
+        self.excel_filename = excel_filename
+        self.selected_file = selected_file
+        self.summary_data = summary_data
+        self.summary_filename = summary_filename
+        self.summary_mode = summary_mode
+
+    def run(self):
+        try:
+            print("[DEBUG] ExcelWriterThread started, setting progress to 0")
+            self.progress_changed.emit(0)
+            # Use the shared write_logs_to_excel function with a progress callback
+            from .report_generator import write_logs_to_excel
+            def debug_progress(val):
+                print(f"[DEBUG] ExcelWriterThread progress: {val}")
+                self.progress_changed.emit(val)
+            write_logs_to_excel(self.log_data, self.excel_filename, self.selected_file, progress_callback=debug_progress)
+            self.progress_changed.emit(100)
+            self.finished.emit(self.excel_filename)
+        except Exception as e:
+            import traceback
+            print(traceback.format_exc())
+            self.finished.emit("")

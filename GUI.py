@@ -39,7 +39,7 @@ from lib.concheck import run_concheck
 from lib.ssh import InteractiveSSH
 from lib.dialogs import ScreenSelectionDialog, MultiConnectDialog, UploadCRDialog, DownloadLogDialog
 from lib.workers import UploadWorker, DownloadLogWorker
-from lib.widgets import ConcheckToolsWidget, CRExecutorWidget, ExcelReaderApp, WorkerThread
+from lib.widgets import ConcheckToolsWidget, CRExecutorWidget, ExcelReaderApp, WorkerThread, CMBulkFileMergeWidget, RehomingScriptToolsWidget
 from lib.log_checker import check_logs_and_export_to_excel
 from lib.report_generator import process_single_log, CATEGORY_CHECKING, CATEGORY_CHECKING1, write_logs_to_excel
 from lib.style import (
@@ -98,16 +98,22 @@ class SSHManager(QMainWindow):
 
         # Create Menu Bar
         self.menu_bar = self.menuBar()
-        self.tools_menu = self.menu_bar.addMenu("Tools")
+        self.menu_cr_executor = self.menu_bar.addMenu("CR EXECUTOR")
+        self.menu_tools = self.menu_bar.addMenu("Other Tools")
 
         # Add Actions
         self.action_cr_executor_true = QAction("CR EXECUTOR TRUE", self)
         self.action_cr_executor_dtac = QAction("CR EXECUTOR DTAC", self)
         self.action_concheck_tools = QAction("CR REPORT GENERATOR", self)
+        self.action_cmbulk_file_merge = QAction("CMBULK FILE MERGE", self)
+        self.action_rehoming_script_tools = QAction("Rehoming SCRIPT Tools", self)
 
-        self.tools_menu.addAction(self.action_cr_executor_true)
-        self.tools_menu.addAction(self.action_cr_executor_dtac)
-        self.tools_menu.addAction(self.action_concheck_tools)
+        self.menu_cr_executor.addAction(self.action_cr_executor_true)
+        self.menu_cr_executor.addAction(self.action_cr_executor_dtac)
+        self.menu_tools.addAction(self.action_rehoming_script_tools)
+        self.menu_tools.addAction(self.action_concheck_tools)
+        self.menu_tools.addAction(self.action_cmbulk_file_merge)
+        
 
         # Create Stacked Widget
         self.stacked_widget = QStackedWidget()
@@ -117,16 +123,22 @@ class SSHManager(QMainWindow):
         self.cr_executor_widget_true = CRExecutorWidget(self.ssh_targets_true, self, session_type="TRUE")
         self.cr_executor_widget_dtac = CRExecutorWidget(self.ssh_targets_dtac, self, session_type="DTAC")
         self.excel_reader_app = ExcelReaderApp()
+        self.cmbulk_file_merge_widget = CMBulkFileMergeWidget()
+        self.rehoming_script_tools_widget = RehomingScriptToolsWidget()
 
         # Add widgets to the stacked widget
         self.stacked_widget.addWidget(self.cr_executor_widget_true)
         self.stacked_widget.addWidget(self.cr_executor_widget_dtac)
         self.stacked_widget.addWidget(self.excel_reader_app)
+        self.stacked_widget.addWidget(self.cmbulk_file_merge_widget)
+        self.stacked_widget.addWidget(self.rehoming_script_tools_widget)
 
         # Connect menu actions to switch widgets
         self.action_cr_executor_true.triggered.connect(self.show_cr_executor_true)
         self.action_cr_executor_dtac.triggered.connect(self.show_cr_executor_dtac)
         self.action_concheck_tools.triggered.connect(self.show_concheck_tools_form)
+        self.action_cmbulk_file_merge.triggered.connect(self.show_cmbulk_file_merge_form)
+        self.action_rehoming_script_tools.triggered.connect(self.show_rehoming_script_tools_form)
 
         # Connect tab change signals for both CR Executor widgets
         self.cr_executor_widget_true.tabs.currentChanged.connect(self.profile_tab_change)
@@ -158,6 +170,16 @@ class SSHManager(QMainWindow):
         """Shows the Excel Reader form."""
         self.stacked_widget.setCurrentWidget(self.excel_reader_app)
         # Ensure background stays behind
+        if hasattr(self, 'background_label'):
+            self.background_label.lower()
+
+    def show_cmbulk_file_merge_form(self):
+        self.stacked_widget.setCurrentWidget(self.cmbulk_file_merge_widget)
+        if hasattr(self, 'background_label'):
+            self.background_label.lower()
+
+    def show_rehoming_script_tools_form(self):
+        self.stacked_widget.setCurrentWidget(self.rehoming_script_tools_widget)
         if hasattr(self, 'background_label'):
             self.background_label.lower()
 

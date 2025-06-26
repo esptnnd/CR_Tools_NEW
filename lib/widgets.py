@@ -22,6 +22,7 @@ import time # For profiling in SSHTab, maybe move later
 import os
 import pandas as pd
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from queue import Queue
 
 # Import the run_concheck function and SSH related classes/dialogs/workers
 from .concheck import run_concheck
@@ -29,7 +30,9 @@ from .ssh import InteractiveSSH # Assuming InteractiveSSH is needed by SSHTab
 from .dialogs import ScreenSelectionDialog, MultiConnectDialog, UploadCRDialog, DownloadLogDialog # Import dialogs used by these widgets
 from .workers import UploadWorker, SubfolderLoaderWorker, DownloadLogWorker # Import workers used by these widgets
 from .style import StyledTabWidget, TransparentTextEdit, StyledPushButton, StyledLineEdit, StyledProgressBar, TopButton, StyledListWidget, StyledContainer, setup_window_style, update_window_style
-from .report_generator import process_single_log, write_logs_to_excel
+from .report_generator import process_single_log, write_logs_to_excel, ExcelWriterThread
+from lib.merge_file_case import ENM_NAMES, merge_cmbulk_files
+from lib.rehoming import merge_lacrac_files, parse_dump, ParseDumpWorker, select_dump_and_excel
 
 
 class ConcheckToolsWidget(QWidget):
@@ -521,6 +524,7 @@ class ExcelReaderApp(QMainWindow):
         self.file_path = None
         self.selected_file = None
         self.output_dir = None
+        self.file_queue = Queue()  # Queue to store selected files
         self.initUI()
         setup_window_style(self)
 
@@ -546,7 +550,7 @@ class ExcelReaderApp(QMainWindow):
 
         # Create file list widget
         self.file_list = StyledListWidget()
-        self.file_list.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.file_list.setSelectionMode(QAbstractItemView.MultiSelection)
         container.layout().addWidget(self.file_list)
 
         # Create process button
@@ -555,9 +559,18 @@ class ExcelReaderApp(QMainWindow):
         container.layout().addWidget(self.process_button)
 
         # Create progress bar
-        self.progress_bar = StyledProgressBar()
+        self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         container.layout().addWidget(self.progress_bar)
+
+        # Add phase label
+        self.phase_label = QLabel("Ready")
+        self.phase_label.setStyleSheet("color: white; font-weight: bold;")
+        container.layout().addWidget(self.phase_label)
+        # Add details label
+        self.details_label = QLabel("")
+        self.details_label.setStyleSheet("color: white; font-weight: bold;")
+        container.layout().addWidget(self.details_label)
 
     def show_success_message(self, message):
         QMessageBox.information(self, 'Success', message)
@@ -569,15 +582,10 @@ class ExcelReaderApp(QMainWindow):
         self.progress_bar.setValue(value)
 
     def on_thread_finished(self, file_path, log_data, selected_file, output_dir):
-        try:
-            excel_filename = os.path.join(output_dir, f"{selected_file}_report.xlsx")
-            write_logs_to_excel(log_data, excel_filename, selected_file)
-            self.show_success_message(f"Processing completed. Report saved to {excel_filename}")
-        except Exception as e:
-            self.show_error_message(f"Error saving report: {str(e)}")
-        finally:
-            self.progress_bar.setValue(100)
-            self.processing_finished.emit()
+        ##self.show_success_message(f"Processing completed")
+        self.worker.phase_changed.emit(f"Processing {file_path} completed")
+        
+
 
     def open_folder_dialog(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Folder")
@@ -598,20 +606,29 @@ class ExcelReaderApp(QMainWindow):
             self.show_error_message(f"Error reading folder: {str(e)}")
 
     def read_selected_excel(self):
+        self.file_queue.queue.clear()  # Clear existing queue
         selected_items = self.file_list.selectedItems()
         if not selected_items:
             self.show_error_message("Please select a file first")
             return
+        for item in selected_items:
+            self.file_queue.put(item.text())
+        self.process_next_file()
 
-        self.selected_file = selected_items[0].text()
-        self.output_dir = os.path.join(self.file_path, "reports")
-        self.check_folder(self.output_dir)
-
-        # Start processing in a separate thread
-        self.worker = WorkerThread(self.file_path, self.selected_file, self.output_dir)
-        self.worker.finished.connect(self.on_thread_finished)
-        self.worker.overall_progress.connect(self.update_overall_progress)
-        self.worker.start()
+    def process_next_file(self):
+        if not self.file_queue.empty():
+            selected_file = self.file_queue.get()
+            self.output_dir = os.path.join(self.file_path, "reports")
+            self.check_folder(self.output_dir)
+            self.worker = WorkerThread(self.file_path, selected_file, self.output_dir)
+            self.worker.finished.connect(self.on_thread_finished)
+            self.worker.overall_progress.connect(self.update_overall_progress)
+            self.worker.phase_changed.connect(self.update_phase_label)
+            self.worker.details_changed.connect(self.update_details_label)
+            self.worker.finished.connect(self.process_next_file)
+            self.worker.start()
+        else:
+            self.show_success_message("All selected folders processed!")
 
     def check_folder(self, output_dir):
         if not os.path.exists(output_dir):
@@ -621,9 +638,17 @@ class ExcelReaderApp(QMainWindow):
         update_window_style(self)
         super().resizeEvent(event)
 
+    def update_phase_label(self, text):
+        self.phase_label.setText(text)
+
+    def update_details_label(self, text):
+        self.details_label.setText(text)
+
 class WorkerThread(QThread):
     finished = pyqtSignal(str, list, str, str)
     overall_progress = pyqtSignal(int)
+    phase_changed = pyqtSignal(str)  # For phase label
+    details_changed = pyqtSignal(str)  # For file name or error
 
     def __init__(self, file_path, selected_file, output_dir):
         super().__init__()
@@ -632,18 +657,202 @@ class WorkerThread(QThread):
         self.output_dir = output_dir
 
     def run(self):
-        folder_path = os.path.join(self.file_path, self.selected_file)
-        log_files = [f for f in os.listdir(folder_path) if f.lower().endswith('.log')]
-        total_files = len(log_files)
+        try:
+            folder_path = os.path.join(self.file_path, self.selected_file)
+            log_files = [f for f in os.listdir(folder_path) if f.lower().endswith('.log')]
+            total_files = len(log_files)
 
-        log_data = []
-        args_list = [(f, folder_path, self.selected_file) for f in log_files]
+            log_data = []
+            args_list = [(f, folder_path, self.selected_file) for f in log_files]
 
-        with ProcessPoolExecutor() as executor:
-            futures = {executor.submit(process_single_log, args): args[0] for args in args_list}
-            for i, future in enumerate(as_completed(futures), 1):
-                result = future.result()
-                log_data.extend(result)
-                self.overall_progress.emit(int((i / total_files) * 100))
+            # Emit 0% progress at the start
+            print("[DEBUG] WorkerThread: Starting log reading, progress 0%")
+            self.phase_changed.emit(f"Reading logs {os.path.basename(folder_path)}...")
+            ##{os.path.basename(output_excel)}
+            self.details_changed.emit("")
+            self.overall_progress.emit(0)
 
-        self.finished.emit(self.file_path, log_data, self.selected_file, self.output_dir)
+            with ProcessPoolExecutor() as executor:
+                futures = {executor.submit(process_single_log, args): args[0] for args in args_list}
+                for i, future in enumerate(as_completed(futures), 1):
+                    result = future.result()
+                    log_data.extend(result)
+                    percent = int((i / total_files) * 100) if total_files else 100
+                    ##print(f"[DEBUG] WorkerThread: Log reading progress {percent}% ({i}/{total_files})")
+                    self.overall_progress.emit(percent)
+                    # Show current file name
+                    self.details_changed.emit(f"Reading: {futures[future]}")
+
+            # After log reading, write Excel and update progress
+            self.phase_changed.emit("Writing Excel...")
+            output_excel = os.path.join(self.output_dir, f"{self.selected_file}_report.xlsx")
+            self.details_changed.emit(f"Writing: {os.path.basename(output_excel)}")
+            from lib.report_generator import write_logs_to_excel
+            def excel_progress(val):
+                ##print(f"[DEBUG] WorkerThread: Excel writing progress {val}%")
+                self.overall_progress.emit(val)
+            write_logs_to_excel(log_data, output_excel, self.selected_file, progress_callback=excel_progress)
+            self.overall_progress.emit(100)
+            self.phase_changed.emit("Done!")
+            self.details_changed.emit("")
+            self.finished.emit(self.file_path, log_data, self.selected_file, self.output_dir)
+        except Exception as e:
+            import traceback
+            err_msg = f"Error: {str(e)}\n{traceback.format_exc()}"
+            self.phase_changed.emit("Error!")
+            self.details_changed.emit(err_msg)
+            print(err_msg)
+            self.finished.emit(self.file_path, [], self.selected_file, self.output_dir)
+
+class CMBulkFileMergeWidget(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("CMBULK FILE MERGER")
+        self.resize(600, 400)
+        setup_window_style(self)
+
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout.setSpacing(15)
+
+        container = StyledContainer()
+        main_layout.addWidget(container)
+
+        self.select_button = StyledPushButton("Pilih File CMBULK")
+        self.select_button.clicked.connect(self.select_files)
+        container.layout().addWidget(self.select_button)
+
+        self.log_output = TransparentTextEdit()
+        self.log_output.setReadOnly(True)
+        container.layout().addWidget(self.log_output)
+
+        # Manual ENM-NAME list (kamu bisa ubah sesuai kebutuhan)
+        self.enm_names = ENM_NAMES
+
+    def log(self, message):
+        self.log_output.append(message)
+
+    def select_files(self):
+        files, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Pilih File CMBULK",
+            "",
+            "Text Files (*.txt);;All Files (*)"
+        )
+
+        if not files:
+            return
+
+        def log_callback(msg):
+            self.log(msg)
+
+        merge_cmbulk_files(files, self.enm_names, log_callback)
+        QMessageBox.information(self, "Selesai", "Penggabungan file selesai.")
+
+class RehomingExportWorker(QThread):
+    progress = pyqtSignal(int)
+    finished = pyqtSignal(str)
+    error = pyqtSignal(str)
+    log = pyqtSignal(str)
+
+    def __init__(self, files, output_dir):
+        super().__init__()
+        self.files = files
+        self.output_dir = output_dir
+
+    def run(self):
+        try:
+            from lib.rehoming import merge_lacrac_files
+            def log_callback(msg):
+                self.log.emit(msg)
+                if msg.startswith("Progress: "):
+                    try:
+                        percent = int(msg.split(": ")[1].replace("%", "").strip())
+                        self.progress.emit(percent)
+                    except Exception:
+                        pass
+                elif msg.startswith("✅ File digabung"):
+                    self.progress.emit(100)
+            merge_lacrac_files(self.files, self.output_dir, log_callback)
+            self.finished.emit("Penggabungan file selesai.")
+        except Exception as e:
+            self.error.emit(str(e))
+
+class RehomingScriptToolsWidget(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Rehoming SCRIPT Tools")
+        self.resize(600, 400)
+        setup_window_style(self)
+
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout.setSpacing(15)
+
+        container = StyledContainer()
+        main_layout.addWidget(container)
+
+        self.select_button = StyledPushButton("Browse FILE DUMP")
+        self.select_button.clicked.connect(self.select_files)
+        container.layout().addWidget(self.select_button)
+
+        self.select_dump_and_excel_button = StyledPushButton("SELECT DUMP and DATA_CELL.xlsx")
+        self.select_dump_and_excel_button.clicked.connect(self.select_dump_and_excel)
+        container.layout().addWidget(self.select_dump_and_excel_button)
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        container.layout().addWidget(self.progress_bar)
+
+        self.log_output = TransparentTextEdit()
+        self.log_output.setReadOnly(True)
+        container.layout().addWidget(self.log_output)
+
+        self.worker = None
+
+    def log(self, message):
+        self.log_output.append(message)
+
+    def select_files(self):
+        self.progress_bar.setValue(0)
+        self.log_output.clear()
+        files, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Pilih FILE DUMP",
+            "",
+            "LACRAC Dump Files (*_DATA_CELL_LACRAC.txt);;All Files (*)"
+        )
+        if not files:
+            return
+        output_dir = os.path.dirname(files[0])
+        self.worker = RehomingExportWorker(files, output_dir)
+        self.worker.progress.connect(self.progress_bar.setValue)
+        self.worker.log.connect(self.log)
+        self.worker.finished.connect(self.on_export_finished)
+        self.worker.error.connect(self.on_export_error)
+        self.worker.start()
+
+    def on_export_finished(self, msg):
+        self.progress_bar.setValue(100)
+        QMessageBox.information(self, "Successfull", msg)
+
+    def on_export_error(self, msg):
+        QMessageBox.critical(self, "Error", msg)
+
+    def select_dump_and_excel(self):
+        def log_callback(msg):
+            self.log_output.append(msg)
+        folder_path, df_ref = select_dump_and_excel(self, log_callback=log_callback)
+        if not folder_path or df_ref is None:
+            return
+        self.parse_worker = ParseDumpWorker(folder_path, df_ref=df_ref)
+        self.parse_worker.log.connect(self.log_output.append)
+        self.parse_worker.progress.connect(self.progress_bar.setValue)
+        self.parse_worker.finished.connect(self.on_parse_finished)
+        self.parse_worker.error.connect(self.log_output.append)
+        self.parse_worker.start()
+
+    def on_parse_finished(self, msg):
+        self.progress_bar.setValue(100)
+        QMessageBox.information(self, "Successfull", msg)
+        self.log_output.append(msg)

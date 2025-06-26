@@ -491,7 +491,7 @@ class StyledListWidget(QListWidget):
                 padding: 5px;
             }
             QListWidget::item:selected {
-                background-color: rgba(255, 255, 255, 0.15);
+                background-color: #0078d7;
                 color: white;
             }
         """)
