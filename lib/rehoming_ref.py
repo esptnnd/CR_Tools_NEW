@@ -140,6 +140,13 @@ userLabel : '{RAC_PLAN}'
 """
 
 
+template_CELL_ANR = """set
+FDN : {FDN}
+anrIafUtranCellConfig : {anrIafUtranCellConfig}
+anrIefUtranCellConfig : {anrIefUtranCellConfig}
+
+"""
+
 template_CELL = """
 create
 FDN : {serviceAreaRef}
@@ -161,8 +168,8 @@ agpsEnabled : {agpsEnabled}
 amrNbSelector : {amrNbSelector}
 amrWbRateDlMax : {amrWbRateDlMax}
 amrWbRateUlMax : {amrWbRateUlMax}
-anrIafUtranCellConfig : {anrIafUtranCellConfig}
-anrIefUtranCellConfig : {anrIefUtranCellConfig}
+anrIafUtranCellConfig : {{sib11IafAnclEnabled=TRUE, relationRemoveEnabled=TRUE, relationAddEnabled=TRUE, anrEnabled=FALSE}}
+anrIefUtranCellConfig : {{anrEnabled=FALSE, sib11IefAnclEnabled=FALSE}}
 antennaPosition : {antennaPosition}
 aseDlAdm : {aseDlAdm}
 aseLoadThresholdUlSpeech : {aseLoadThresholdUlSpeech}
@@ -319,6 +326,7 @@ usedFreqThresh2dEcno : {usedFreqThresh2dEcno}
 usedFreqThresh2dRscp : {usedFreqThresh2dRscp}
 userLabel : {userLabel}
 utranCellPosition : {utranCellPosition}
+anrEutranUtranCellConfig : {{anrEnabled=FALSE}}
 """
 
 

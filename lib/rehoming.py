@@ -167,7 +167,7 @@ def process_cmbulk_export(folder_path, data_groups, df_ref, df_cell, df_IUB, df_
     from .rehoming_ref import (
         template_CELL, template_FACH, template_Hsdsch, template_Pch,
         template_IUBLINK, template_Rach, template_EUL, template_IUBLINK_EDCH,
-        template_EutranFreqRelation
+        template_EutranFreqRelation, template_CELL_ANR
     )
     from .rehoming_ref import write_output    
 
@@ -179,7 +179,10 @@ def process_cmbulk_export(folder_path, data_groups, df_ref, df_cell, df_IUB, df_
 
     template_REFERENCE = """FDN : {FDN}\n"""
     template_DELETE = """delete\nFDN : {FDN}\n"""
+    template_DELETE_CELL_SAC = """delete\nFDN : {FDN}\ndelete\nFDN : {serviceAreaRef_OLD}\n"""
     template_LOCK = """set\nFDN : {FDN}\nadministrativeState : {administrativeState}\n"""
+    ##template_LOCK = """set\nFDN : {FDN}\nanrEutranUtranCellConfig : {{anrEnabled=FALSE}} \n"""
+    ##anrEutranUtranCellConfig
 
     # === SETUP ===
     log("[STEP] Setup dan persiapan file referensi...")
@@ -285,8 +288,9 @@ def process_cmbulk_export(folder_path, data_groups, df_ref, df_cell, df_IUB, df_
                 row['administrativeState'] = 'LOCKED'
                 write_output(template_CELL, row, filename_prefix="00_SCRIPT_CELL", filename_by='target')
                 write_output(template_CELL, row, filename_prefix="05_FALLBACK_CREATE_CELL", filename_by='source', replace_fdn=False)
+                write_output(template_CELL_ANR, row, filename_prefix="06_SCRIPT_CELL_ANR", filename_by='target', replace_fdn=True)
                 write_output(template_REFERENCE, row, filename_prefix="09_FILE_REFERENCE", filename_by='all', replace_fdn=False)
-                ##template_LOCK
+                ##template_LOCK  01_LOCK_TARGET
                 write_output(template_LOCK, row, filename_prefix="01_LOCK_TARGET", filename_by='target', replace_fdn=True)
                 write_output(template_LOCK, row, filename_prefix="02_LOCK_SOURCE", filename_by='source', replace_fdn=False)
                 row['administrativeState'] = 'UNLOCKED'
@@ -394,7 +398,10 @@ def process_cmbulk_export(folder_path, data_groups, df_ref, df_cell, df_IUB, df_
             continue
 
         for _, row in tqdm(df.iterrows(), total=len(df), desc=type_str):
-            write_output(template_DELETE, row, "04_DELETE_CELL", filename_by='source', replace_fdn=False)
+            if type_str == "UtranCell":
+                write_output(template_DELETE_CELL_SAC, row, "04_DELETE_CELL", filename_by='source', replace_fdn=False)
+            else:    
+                write_output(template_DELETE, row, "04_DELETE_CELL", filename_by='source', replace_fdn=False)
         total_rows = len(df)
         log(f"✅ Completed: {type_str} ({total_rows} baris)")
 
