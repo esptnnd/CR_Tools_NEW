@@ -16,7 +16,7 @@ from PyQt5.QtWidgets import (
     QAbstractItemView
 )
 import openpyxl
-from openpyxl.styles import Font, PatternFill , Border, Side
+from openpyxl.styles import Font, PatternFill, Border, Side
 from openpyxl.utils.dataframe import dataframe_to_rows
 
 
@@ -152,7 +152,88 @@ def process_single_log(args):
         print(f"Error processing {filename}: {e}")
     end_time = time.time()
     print(f"Processed {filename} in {end_time - start_time:.2f}s")
-    return local_log_data
+
+    # --- New Section: Parse LOG_Alarm_bf, LOG_status_bf, LOG_Alarm_af, LOG_status_af ---
+    from io import StringIO
+
+    log_data_sections = {
+        'LOG_Alarm_bf': [],
+        'LOG_status_bf': [],
+        'LOG_Alarm_af': [],
+        'LOG_status_af': [],
+    }
+
+    mode = None
+    collecting = False
+
+    with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+        lines = f.readlines()
+
+    for line in lines:
+        stripped = line.strip()
+        if '####LOG_Alarm_bf' in stripped:
+            mode, collecting = 'LOG_Alarm_bf', False
+            continue
+        elif '####LOG_status_bf' in stripped:
+            mode, collecting = 'LOG_status_bf', False
+            continue
+        elif '####LOG_Alarm_af' in stripped:
+            mode, collecting = 'LOG_Alarm_af', False
+            continue
+        elif '####LOG_status_af' in stripped:
+            mode, collecting = 'LOG_status_af', False
+            continue
+
+        if stripped == "" and collecting:
+            mode, collecting = None, False
+            continue
+
+        if ';' in stripped and mode:
+            collecting = True
+            log_data_sections[mode].append(stripped)
+
+    nodename = os.path.splitext(os.path.basename(filepath))[0]
+
+    def parse_alarm(data_lines):
+        if not data_lines:
+            return pd.DataFrame()
+        df = pd.read_csv(StringIO('\n'.join(data_lines)), sep=';', engine='python')
+        df.columns = [col.strip() for col in df.columns]  # Strip spaces from headers
+        df = df.apply(lambda x: x.str.strip() if x.dtype == "object" else x)
+        df['NODENAME'] = nodename
+        return df
+
+    def parse_status(data_lines):
+        if not data_lines:
+            return pd.DataFrame()
+        headers = [l.split(';') for l in data_lines if l.startswith("MO")]
+        if not headers:
+            return pd.DataFrame()
+        header = [h.strip() for h in headers[-1]]  # Strip header names
+        rows = [
+            [cell.strip() for cell in l.split(';')]
+            for l in data_lines
+            if not l.startswith("MO") and len(l.split(';')) == len(header)
+        ]
+        df = pd.DataFrame(rows, columns=header)
+        df = df.apply(lambda x: x.str.strip() if x.dtype == "object" else x)
+        df['NODENAME'] = nodename
+        return df
+
+
+
+    df_LOG_Alarm_bf = parse_alarm(log_data_sections['LOG_Alarm_bf'])
+    df_LOG_Alarm_af = parse_alarm(log_data_sections['LOG_Alarm_af'])
+    df_LOG_status_bf = parse_status(log_data_sections['LOG_status_bf'])
+    df_LOG_status_af = parse_status(log_data_sections['LOG_status_af'])
+
+    return {
+        "log_data": local_log_data,
+        "df_LOG_Alarm_bf": df_LOG_Alarm_bf,
+        "df_LOG_Alarm_af": df_LOG_Alarm_af,
+        "df_LOG_status_bf": df_LOG_status_bf,
+        "df_LOG_status_af": df_LOG_status_af,
+    }
 
 
 
@@ -465,7 +546,7 @@ class ExcelReaderApp(QMainWindow):
 from tqdm import tqdm
 
 # Function to write log data to an Excel file
-def write_logs_to_excel(log_data, excel_filename, selected_file, progress_callback=None):
+def write_logs_to_excel(log_data, excel_filename, selected_file, progress_callback=None, df_LOG_Alarm_bf=None, df_LOG_Alarm_af=None, df_LOG_status_bf=None, df_LOG_status_af=None):
     # Create a new Excel workbook
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -646,8 +727,132 @@ def write_logs_to_excel(log_data, excel_filename, selected_file, progress_callba
             top=Side(style='thin'),
             bottom=Side(style='thin')
         )
+    
+    
+    
+    if df_LOG_status_bf is not None and not df_LOG_status_bf.empty and df_LOG_status_af is not None and not df_LOG_status_af.empty:
+        ###############################################
+        # Merge the two DataFrames on 'NODENAME' and 'MO'
+        cols = ['NODENAME', 'MO', 'administrativeState', 'operationalState']
+        df_result = (
+            pd.merge(df_LOG_status_bf[cols], df_LOG_status_af[cols], on=['NODENAME', 'MO'], suffixes=('_bf', '_af'))
+            .assign(
+                state_pair_bf=lambda x: x['administrativeState_bf'].astype(str) + '|' + x['operationalState_bf'].astype(str),
+                state_pair_af=lambda x: x['administrativeState_af'].astype(str) + '|' + x['operationalState_af'].astype(str),
+                state_match=lambda x: x['state_pair_bf'] == x['state_pair_af']
+            )[
+                ['NODENAME', 'MO',
+                'administrativeState_bf', 'operationalState_bf',
+                'administrativeState_af', 'operationalState_af',
+                'state_match']
+            ]
+        )
 
-    # Save the Excel workbook
+
+        df_LOG_Alarm_af['Alarm'] = df_LOG_Alarm_af[['Severity', 'Object', 'Problem', 'Cause', 'AdditionalText']].astype(str).agg('|'.join, axis=1)
+        df_LOG_Alarm_bf['Alarm'] = df_LOG_Alarm_bf[['Severity', 'Object', 'Problem', 'Cause', 'AdditionalText']].astype(str).agg('|'.join, axis=1)
+        # Step 1: Add suffix
+        df_LOG_Alarm_bf = df_LOG_Alarm_bf.add_suffix('_Before')
+        df_LOG_Alarm_af = df_LOG_Alarm_af.add_suffix('_After')
+
+        # Step 2: Merge
+        df_compare_alarm = pd.merge(
+            df_LOG_Alarm_af,
+            df_LOG_Alarm_bf,
+            left_on=['NODENAME_After', 'Alarm_After'],
+            right_on=['NODENAME_Before', 'Alarm_Before'],
+            how='left'
+        )
+
+        # Step 3: Apply Remarks
+        def get_alarm_remark(row):
+            try:
+                if pd.notna(row['Alarm_Before']):
+                    return 'Alarm Existing'
+                else:
+                    return 'NEW Alarm'
+            except KeyError:
+                return 'NO DATA BEFORE'
+
+        df_compare_alarm['Remarks'] = df_compare_alarm.apply(get_alarm_remark, axis=1)
+        df_compare_alarm = df_compare_alarm.rename(columns={
+        'NODENAME_After': 'NODENAME'
+        })
+        # Optional: Rearrange columns for readability
+        cols = [
+            'NODENAME', 
+            'Date_Before', 'Time_Before', 'Alarm_Before',
+            'Date_After', 'Time_After', 'Alarm_After', 'Remarks'
+        ]
+        df_compare_alarm = df_compare_alarm[cols]
+
+
+
+
+        # Save the Excel workbook
+        # Write each DataFrame to a separate sheet if not empty
+        def write_df_to_sheet(wb, df, sheet_name, highlight_remarks=None):
+            if df is None or df.empty:
+                return
+
+            ws = wb.create_sheet(title=sheet_name)
+
+            # Styles
+            bold = Font(bold=True)
+            border = Border(*(Side(style="thin") for _ in range(4)))
+            fills = {
+                "yellow": PatternFill("solid", fgColor="fafbbe"),
+                "yellow_remark": PatternFill("solid", fgColor="fbff02"),
+                "blue": PatternFill("solid", fgColor="ADD8E6"),
+                "orange": PatternFill("solid", fgColor="FFD580"),
+                "green": PatternFill("solid", fgColor="90EE90"),
+                "red": PatternFill("solid", fgColor="FF9999"),
+            }
+
+            # Column color mapping
+            color_map = {
+                "Alarm": ['yellow', 'blue', 'blue', 'blue', 'orange', 'orange', 'orange', 'green'],
+                "CellState": ['yellow','yellow', 'blue', 'blue', 'orange', 'orange', 'green']
+            }
+
+            remarks_idx = None
+            state_match_idx = None
+            for r, row in enumerate(dataframe_to_rows(df, index=False, header=True), 1):
+                ws.append(row)
+
+                for c, val in enumerate(row, 1):
+                    cell = ws.cell(row=r, column=c)
+                    if r == 1:  # Header
+                        cell.font = bold
+                        cell.border = border
+                        color = color_map.get(sheet_name, [])[c-1] if c-1 < len(color_map.get(sheet_name, [])) else None
+                        if color:
+                            cell.fill = fills[color]
+                        if val == "Remarks":
+                            remarks_idx = c
+                        if sheet_name == "CellState" and val == "state_match":
+                            state_match_idx = c
+                    else:
+                        cell.font = Font(size=9)
+                        if highlight_remarks and remarks_idx and row[remarks_idx - 1] == highlight_remarks:
+                            cell.fill = fills["yellow_remark"]
+                        # Style for state_match column in CellState
+                        if sheet_name == "CellState" and state_match_idx and c == state_match_idx:
+                            if str(val).strip().lower() == "true":
+                                cell.fill = fills["green"]
+                            elif str(val).strip().lower() == "false":
+                                cell.fill = fills["red"]
+
+            # Autofit columns
+            for col in ws.columns:
+                width = max((len(str(cell.value)) if cell.value else 0 for cell in col), default=0)
+                ws.column_dimensions[col[0].column_letter].width = min(width + 2, 50)
+
+        # === USAGE ===    
+        write_df_to_sheet(wb, df_compare_alarm, "Alarm", highlight_remarks="NEW Alarm")
+        write_df_to_sheet(wb, df_result, "CellState")
+    
+
     wb.save(excel_filename)
      
 

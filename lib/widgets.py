@@ -664,25 +664,38 @@ class WorkerThread(QThread):
             total_files = len(log_files)
 
             log_data = []
+            alarm_bf_list, alarm_af_list, status_bf_list, status_af_list = [], [], [], []
             args_list = [(f, folder_path, self.selected_file) for f in log_files]
 
             # Emit 0% progress at the start
             print("[DEBUG] WorkerThread: Starting log reading, progress 0%")
             self.phase_changed.emit(f"Reading logs {os.path.basename(folder_path)}...")
-            ##{os.path.basename(output_excel)}
             self.details_changed.emit("")
             self.overall_progress.emit(0)
 
+            from lib.report_generator import process_single_log
+            import pandas as pd
             with ProcessPoolExecutor() as executor:
                 futures = {executor.submit(process_single_log, args): args[0] for args in args_list}
                 for i, future in enumerate(as_completed(futures), 1):
                     result = future.result()
-                    log_data.extend(result)
+                    log_data.extend(result["log_data"])
+                    if not result["df_LOG_Alarm_bf"].empty:
+                        alarm_bf_list.append(result["df_LOG_Alarm_bf"])
+                    if not result["df_LOG_Alarm_af"].empty:
+                        alarm_af_list.append(result["df_LOG_Alarm_af"])
+                    if not result["df_LOG_status_bf"].empty:
+                        status_bf_list.append(result["df_LOG_status_bf"])
+                    if not result["df_LOG_status_af"].empty:
+                        status_af_list.append(result["df_LOG_status_af"])
                     percent = int((i / total_files) * 100) if total_files else 100
-                    ##print(f"[DEBUG] WorkerThread: Log reading progress {percent}% ({i}/{total_files})")
                     self.overall_progress.emit(percent)
-                    # Show current file name
                     self.details_changed.emit(f"Reading: {futures[future]}")
+
+            df_LOG_Alarm_bf = pd.concat(alarm_bf_list, ignore_index=True) if alarm_bf_list else pd.DataFrame()
+            df_LOG_Alarm_af = pd.concat(alarm_af_list, ignore_index=True) if alarm_af_list else pd.DataFrame()
+            df_LOG_status_bf = pd.concat(status_bf_list, ignore_index=True) if status_bf_list else pd.DataFrame()
+            df_LOG_status_af = pd.concat(status_af_list, ignore_index=True) if status_af_list else pd.DataFrame()
 
             # After log reading, write Excel and update progress
             self.phase_changed.emit("Writing Excel...")
@@ -690,9 +703,15 @@ class WorkerThread(QThread):
             self.details_changed.emit(f"Writing: {os.path.basename(output_excel)}")
             from lib.report_generator import write_logs_to_excel
             def excel_progress(val):
-                ##print(f"[DEBUG] WorkerThread: Excel writing progress {val}%")
                 self.overall_progress.emit(val)
-            write_logs_to_excel(log_data, output_excel, self.selected_file, progress_callback=excel_progress)
+            write_logs_to_excel(
+                log_data, output_excel, self.selected_file, 
+                progress_callback=excel_progress,
+                df_LOG_Alarm_bf=df_LOG_Alarm_bf,
+                df_LOG_Alarm_af=df_LOG_Alarm_af,
+                df_LOG_status_bf=df_LOG_status_bf,
+                df_LOG_status_af=df_LOG_status_af
+            )
             self.overall_progress.emit(100)
             self.phase_changed.emit("Done!")
             self.details_changed.emit("")
