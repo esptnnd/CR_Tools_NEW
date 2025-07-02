@@ -70,7 +70,7 @@ from IPython.display import clear_output
 import time
 from PyQt5.QtCore import QThread, pyqtSignal
 
-def parse_dump(folder_path, log_callback=None, progress_callback=None, df_ref_raw=None):
+def parse_dump(folder_path, log_callback=None, progress_callback=None, df_ref_raw=None, exclude_types=None):
     # === KONFIGURASI ===
     output_folder = f"{folder_path}/00_output_df/"
     ignore_types = ['SubNetwork', 'MeContext', 'ManagedElement', 'RncFunction']
@@ -154,13 +154,13 @@ def parse_dump(folder_path, log_callback=None, progress_callback=None, df_ref_ra
     df_ref = df_ref_raw.copy()
     ##print(df_ref.head)
     print(df_ref.columns)
-    process_cmbulk_export(folder_path, data_groups, df_ref, df_cell, df_IUB, df_IUB_ECDCH, log_callback=log_callback, progress_callback=progress_callback)
+    process_cmbulk_export(folder_path, data_groups, df_ref, df_cell, df_IUB, df_IUB_ECDCH, log_callback=log_callback, progress_callback=progress_callback, exclude_types=exclude_types)
 
 
 
 
 
-def process_cmbulk_export(folder_path, data_groups, df_ref, df_cell, df_IUB, df_IUB_ECDCH, log_callback=None, progress_callback=None):
+def process_cmbulk_export(folder_path, data_groups, df_ref, df_cell, df_IUB, df_IUB_ECDCH, log_callback=None, progress_callback=None, exclude_types=None):
     import os, glob, re
     import pandas as pd
     from tqdm import tqdm
@@ -170,6 +170,9 @@ def process_cmbulk_export(folder_path, data_groups, df_ref, df_cell, df_IUB, df_
         template_EutranFreqRelation, template_CELL_ANR
     )
     from .rehoming_ref import write_output    
+
+    if exclude_types is None:
+        exclude_types = []
 
     def log(msg):
         if log_callback:
@@ -273,6 +276,8 @@ def process_cmbulk_export(folder_path, data_groups, df_ref, df_cell, df_IUB, df_
     # === PROSES DATA CMBULK CREATE ===
     log("[STEP] Mulai proses CREATE CMBULK...")
     for idx, type_str in enumerate(all_keys, 1):
+        if type_str in exclude_types:
+            continue
         log_msg = f"Processing {type_str} ({idx}/{len(all_keys)})"
         log(log_msg)
         percent = int((idx / len(all_keys)) * 100)
@@ -376,6 +381,8 @@ def process_cmbulk_export(folder_path, data_groups, df_ref, df_cell, df_IUB, df_
 
     # Proses DELETE CMBULK
     for idx, type_str in enumerate(all_keys, 1):
+        if type_str in exclude_types:
+            continue
         log_msg = f"Processing DELETE {type_str} ({idx}/{len(all_keys)})"
         log(log_msg)
 
@@ -521,10 +528,11 @@ class ParseDumpWorker(QThread):
     finished = pyqtSignal(str)
     error = pyqtSignal(str)
 
-    def __init__(self, folder_path, df_ref=None):
+    def __init__(self, folder_path, df_ref=None, exclude_types=None):
         super().__init__()
         self.folder_path = folder_path
         self.df_ref = df_ref
+        self.exclude_types = exclude_types or []
 
     def run(self):
         try:
@@ -532,7 +540,7 @@ class ParseDumpWorker(QThread):
                 self.log.emit(msg)
             def progress_callback(val):
                 self.progress.emit(val)
-            parse_dump(self.folder_path, log_callback=log_callback, progress_callback=progress_callback, df_ref_raw=self.df_ref)
+            parse_dump(self.folder_path, log_callback=log_callback, progress_callback=progress_callback, df_ref_raw=self.df_ref, exclude_types=self.exclude_types)
             script_path = os.path.join(self.folder_path, "01_output_script")
             self.finished.emit(f"✅ SCRIPT REHOMING COMPLETE GENERATED\n{script_path}")
         except Exception as e:

@@ -11,7 +11,8 @@
 
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, QTextEdit, QMessageBox, QFileDialog,
-    QTabWidget, QMainWindow, QLabel, QProgressBar, QStackedWidget, QListWidget, QAbstractItemView
+    QTabWidget, QMainWindow, QLabel, QProgressBar, QStackedWidget, QListWidget, QAbstractItemView,
+    QCheckBox, QGroupBox, QFormLayout, QDialog, QDialogButtonBox
 )
 from PyQt5.QtCore import (
     QEventLoop, QTimer, QObject, pyqtSignal, QThread, Qt, QFileInfo, QDir, QEvent
@@ -778,12 +779,39 @@ class RehomingExportWorker(QThread):
         except Exception as e:
             self.error.emit(str(e))
 
+class ExcludeTypesDialog(QDialog):
+    def __init__(self, current_excluded=None, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Exclude Types (MO)")
+        self.setMinimumWidth(300)
+        self.type_checkboxes = {}
+        layout = QVBoxLayout(self)
+        checklist_layout = QFormLayout()
+        types = [
+            'UtranCell', 'IubLink', 'IubEdch', 'Fach', 'Hsdsch', 'Pch', 'Rach', 'Eul', 'EutranFreqRelation']
+        for type_name in types:
+            cb = QCheckBox(type_name)
+            if current_excluded and type_name in current_excluded:
+                cb.setChecked(True)
+            self.type_checkboxes[type_name] = cb
+            checklist_layout.addRow(cb)
+        layout.addLayout(checklist_layout)
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
+
+    def get_excluded_types(self):
+        return [k for k, cb in self.type_checkboxes.items() if cb.isChecked()]
+
 class RehomingScriptToolsWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Rehoming SCRIPT Tools")
         self.resize(600, 400)
         setup_window_style(self)
+
+        self.exclude_types = []
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(20, 20, 20, 20)
@@ -792,13 +820,20 @@ class RehomingScriptToolsWidget(QWidget):
         container = StyledContainer()
         main_layout.addWidget(container)
 
+        # Add Browse FILE DUMP button above the row
         self.select_button = StyledPushButton("Browse FILE DUMP")
         self.select_button.clicked.connect(self.select_files)
         container.layout().addWidget(self.select_button)
-
+        # Place SELECT DUMP and FILTER buttons in a horizontal layout
+        button_row = QHBoxLayout()
         self.select_dump_and_excel_button = StyledPushButton("SELECT DUMP and DATA_CELL.xlsx")
         self.select_dump_and_excel_button.clicked.connect(self.select_dump_and_excel)
-        container.layout().addWidget(self.select_dump_and_excel_button)
+        button_row.addWidget(self.select_dump_and_excel_button)
+        self.filter_button = StyledPushButton("...")
+        self.filter_button.clicked.connect(self.open_exclude_dialog)
+        button_row.addWidget(self.filter_button)
+        button_row.addStretch(1)
+        container.layout().addLayout(button_row)
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
@@ -809,6 +844,14 @@ class RehomingScriptToolsWidget(QWidget):
         container.layout().addWidget(self.log_output)
 
         self.worker = None
+
+    def get_excluded_types(self):
+        return self.exclude_types
+
+    def open_exclude_dialog(self):
+        dlg = ExcludeTypesDialog(current_excluded=self.exclude_types, parent=self)
+        if dlg.exec_() == QDialog.Accepted:
+            self.exclude_types = dlg.get_excluded_types()
 
     def log(self, message):
         self.log_output.append(message)
@@ -845,7 +888,8 @@ class RehomingScriptToolsWidget(QWidget):
         folder_path, df_ref = select_dump_and_excel(self, log_callback=log_callback)
         if not folder_path or df_ref is None:
             return
-        self.parse_worker = ParseDumpWorker(folder_path, df_ref=df_ref)
+        exclude_types = self.get_excluded_types()
+        self.parse_worker = ParseDumpWorker(folder_path, df_ref=df_ref, exclude_types=exclude_types)
         self.parse_worker.log.connect(self.log_output.append)
         self.parse_worker.progress.connect(self.progress_bar.setValue)
         self.parse_worker.finished.connect(self.on_parse_finished)
@@ -856,3 +900,4 @@ class RehomingScriptToolsWidget(QWidget):
         self.progress_bar.setValue(100)
         QMessageBox.information(self, "Successfull", msg)
         self.log_output.append(msg)
+
