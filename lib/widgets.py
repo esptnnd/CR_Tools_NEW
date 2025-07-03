@@ -319,7 +319,7 @@ class SSHTab(QWidget):
 
     def perform_sftp_and_remote_commands(self, selected_folders, selected_mode, selected_sessions=None, 
                                        mobatch_paralel=70, mobatch_timeout=30, assigned_nodes=None, 
-                                       mobatch_execution_mode="REGULAR_MOBATCH"):
+                                       mobatch_execution_mode="REGULAR_MOBATCH", collect_prepost_checked=False):
         """Handle SFTP upload and remote commands"""
         self.append_output(f"SSHTab {self.target['session_name']} performing SFTP and remote commands.")
         self.append_output("Preparing for SFTP upload and remote commands...")
@@ -332,11 +332,11 @@ class SSHTab(QWidget):
         self.cleanup_upload_thread()
         self._setup_upload_worker(selected_folders, selected_mode, selected_sessions,
                                 mobatch_paralel, mobatch_timeout, assigned_nodes,
-                                mobatch_execution_mode)
+                                mobatch_execution_mode, collect_prepost_checked)
 
     def _setup_upload_worker(self, selected_folders, selected_mode, selected_sessions,
                            mobatch_paralel, mobatch_timeout, assigned_nodes,
-                           mobatch_execution_mode):
+                           mobatch_execution_mode, collect_prepost_checked):
         """Setup the upload worker with the given parameters"""
         self.upload_thread = QThread()
         # Pass necessary parameters to the UploadWorker, including var_FOLDER_CR from ssh_manager
@@ -350,7 +350,8 @@ class SSHTab(QWidget):
             mobatch_timeout,
             assigned_nodes,
             mobatch_execution_mode,
-            var_FOLDER_CR=self.ssh_manager.var_FOLDER_CR # Get from manager
+            var_FOLDER_CR=self.ssh_manager.var_FOLDER_CR, # Get from manager
+            collect_prepost_checked=collect_prepost_checked
         )
         self.upload_worker.moveToThread(self.upload_thread)
 
@@ -520,12 +521,13 @@ class CRExecutorWidget(QWidget):
 class ExcelReaderApp(QMainWindow):
     processing_finished = pyqtSignal()
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, *args, start_path=None, **kwargs):
+        super().__init__(*args, **kwargs)
         self.file_path = None
         self.selected_file = None
         self.output_dir = None
         self.file_queue = Queue()  # Queue to store selected files
+        self.start_path = start_path or os.path.expanduser('~')
         self.initUI()
         setup_window_style(self)
 
@@ -589,7 +591,7 @@ class ExcelReaderApp(QMainWindow):
 
 
     def open_folder_dialog(self):
-        folder = QFileDialog.getExistingDirectory(self, "Select Folder")
+        folder = QFileDialog.getExistingDirectory(self, "Select Folder", self.start_path)
         if folder:
             self.file_path = folder
             self.populate_file_list()
@@ -725,11 +727,12 @@ class WorkerThread(QThread):
             self.finished.emit(self.file_path, [], self.selected_file, self.output_dir)
 
 class CMBulkFileMergeWidget(QWidget):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, start_path=None):
         super().__init__(parent)
         self.setWindowTitle("CMBULK FILE MERGER")
         self.resize(600, 400)
         setup_window_style(self)
+        self.start_path = start_path or os.path.expanduser('~')
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(20, 20, 20, 20)
@@ -756,7 +759,7 @@ class CMBulkFileMergeWidget(QWidget):
         files, _ = QFileDialog.getOpenFileNames(
             self,
             "Pilih File CMBULK",
-            "",
+            self.start_path,
             "Text Files (*.txt);;All Files (*)"
         )
 
@@ -824,13 +827,12 @@ class ExcludeTypesDialog(QDialog):
         return [k for k, cb in self.type_checkboxes.items() if cb.isChecked()]
 
 class RehomingScriptToolsWidget(QWidget):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, start_path=None):
         super().__init__(parent)
         self.setWindowTitle("Rehoming SCRIPT Tools")
-        self.resize(600, 400)
+        self.resize(800, 600)
         setup_window_style(self)
-
-        self.exclude_types = []
+        self.start_path = start_path or os.path.expanduser('~')
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(20, 20, 20, 20)
@@ -839,30 +841,54 @@ class RehomingScriptToolsWidget(QWidget):
         container = StyledContainer()
         main_layout.addWidget(container)
 
-        # Add Browse FILE DUMP button above the row
-        self.select_button = StyledPushButton("Browse FILE DUMP")
-        self.select_button.clicked.connect(self.select_files)
-        container.layout().addWidget(self.select_button)
-        # Place SELECT DUMP and FILTER buttons in a horizontal layout
+        # --- Top row: SELECT DUMP and ... button ---
         button_row = QHBoxLayout()
         self.select_dump_and_excel_button = StyledPushButton("SELECT DUMP and DATA_CELL.xlsx")
         self.select_dump_and_excel_button.clicked.connect(self.select_dump_and_excel)
-        button_row.addWidget(self.select_dump_and_excel_button)
         self.filter_button = StyledPushButton("...")
         self.filter_button.clicked.connect(self.open_exclude_dialog)
+        self.filter_button.setFixedWidth(60)
+        button_row.addWidget(self.select_dump_and_excel_button)
+        button_row.addSpacing(10)
         button_row.addWidget(self.filter_button)
-        button_row.addStretch(1)
         container.layout().addLayout(button_row)
 
+        # --- Second row: Browse FILE DUMP button, same width as above ---
+        self.select_files_button = StyledPushButton("Browse FILE DUMP")
+        self.select_files_button.clicked.connect(self.select_files)
+        container.layout().addWidget(self.select_files_button)
+
+        # --- Progress bar below buttons, above log output ---
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         container.layout().addWidget(self.progress_bar)
 
+        # --- Log output area ---
         self.log_output = TransparentTextEdit()
         self.log_output.setReadOnly(True)
         container.layout().addWidget(self.log_output)
 
-        self.worker = None
+        # --- Set consistent width for all main widgets ---
+        # After widget creation, set the width to match log_output
+        self.select_dump_and_excel_button.setSizePolicy(self.log_output.sizePolicy())
+        self.select_files_button.setSizePolicy(self.log_output.sizePolicy())
+        self.filter_button.setSizePolicy(self.log_output.sizePolicy())
+        # Optionally, set minimum width to ensure alignment
+        self.select_dump_and_excel_button.setMinimumWidth(400)
+        self.select_files_button.setMinimumWidth(400)
+        self.log_output.setMinimumWidth(400)
+
+        # Set button heights to match their text for a natural look
+        btn_height = self.select_dump_and_excel_button.sizeHint().height()
+        self.select_dump_and_excel_button.setFixedHeight(btn_height)
+        self.filter_button.setFixedHeight(btn_height)
+        self.select_files_button.setFixedHeight(btn_height)
+
+        self.exclude_types = []
+        self.parse_worker = None
+
+    def log(self, message):
+        self.log_output.append(message)
 
     def get_excluded_types(self):
         return self.exclude_types
@@ -872,8 +898,26 @@ class RehomingScriptToolsWidget(QWidget):
         if dlg.exec_() == QDialog.Accepted:
             self.exclude_types = dlg.get_excluded_types()
 
-    def log(self, message):
-        self.log_output.append(message)
+    def select_dump_and_excel(self):
+        def log_callback(msg):
+            self.log(msg)
+        folder_path, df_ref = select_dump_and_excel(self, log_callback=log_callback, start_path=self.start_path)
+        if not folder_path or df_ref is None:
+            self.log(f"\n\u274c Gagal memilih folder atau membaca DATA_CELL.xlsx\n")
+            return
+        exclude_types = self.get_excluded_types()
+        self.parse_worker = ParseDumpWorker(folder_path, df_ref=df_ref, exclude_types=exclude_types)
+        self.parse_worker.log.connect(self.log_output.append)
+        self.parse_worker.progress.connect(self.progress_bar.setValue)
+        self.parse_worker.finished.connect(self.on_parse_finished)
+        self.parse_worker.error.connect(self.log_output.append)
+        self.progress_bar.setValue(0)
+        self.parse_worker.start()
+
+    def on_parse_finished(self, msg):
+        self.progress_bar.setValue(100)
+        QMessageBox.information(self, "Successfull", msg)
+        self.log_output.append(msg)
 
     def select_files(self):
         self.progress_bar.setValue(0)
@@ -881,7 +925,7 @@ class RehomingScriptToolsWidget(QWidget):
         files, _ = QFileDialog.getOpenFileNames(
             self,
             "Pilih FILE DUMP",
-            "",
+            self.start_path,
             "LACRAC Dump Files (*_DATA_CELL_LACRAC.txt);;All Files (*)"
         )
         if not files:
@@ -900,23 +944,4 @@ class RehomingScriptToolsWidget(QWidget):
 
     def on_export_error(self, msg):
         QMessageBox.critical(self, "Error", msg)
-
-    def select_dump_and_excel(self):
-        def log_callback(msg):
-            self.log_output.append(msg)
-        folder_path, df_ref = select_dump_and_excel(self, log_callback=log_callback)
-        if not folder_path or df_ref is None:
-            return
-        exclude_types = self.get_excluded_types()
-        self.parse_worker = ParseDumpWorker(folder_path, df_ref=df_ref, exclude_types=exclude_types)
-        self.parse_worker.log.connect(self.log_output.append)
-        self.parse_worker.progress.connect(self.progress_bar.setValue)
-        self.parse_worker.finished.connect(self.on_parse_finished)
-        self.parse_worker.error.connect(self.log_output.append)
-        self.parse_worker.start()
-
-    def on_parse_finished(self, msg):
-        self.progress_bar.setValue(100)
-        QMessageBox.information(self, "Successfull", msg)
-        self.log_output.append(msg)
 

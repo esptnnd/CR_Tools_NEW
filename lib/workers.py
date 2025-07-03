@@ -27,7 +27,7 @@ class UploadWorker(QObject):
     error = pyqtSignal(str) # Signal when an error occurs
     output = pyqtSignal(str) # Signal to send output messages to GUI
 
-    def __init__(self, ssh_client, target_info, selected_folders, mode, selected_sessions=None, mobatch_paralel=70, mobatch_timeout=30, assigned_nodes=None, mobatch_execution_mode="REGULAR_MOBATCH", mobatch_extra_argument="", var_FOLDER_CR=None):
+    def __init__(self, ssh_client, target_info, selected_folders, mode, selected_sessions=None, mobatch_paralel=70, mobatch_timeout=30, assigned_nodes=None, mobatch_execution_mode="REGULAR_MOBATCH", mobatch_extra_argument="", var_FOLDER_CR=None, collect_prepost_checked=False):
         super().__init__()
         self.ssh_client = ssh_client
         self.target_info = target_info
@@ -41,6 +41,7 @@ class UploadWorker(QObject):
         self.mobatch_execution_mode = mobatch_execution_mode # Store the selected mode
         self.mobatch_extra_argument = mobatch_extra_argument # Store extra mobatch arguments
         self.var_FOLDER_CR = var_FOLDER_CR
+        self.collect_prepost_checked = collect_prepost_checked
 
     def stop(self):
         self._should_stop = True
@@ -141,9 +142,7 @@ class UploadWorker(QObject):
                         f.write("\n".join(oss_nodes) + "\n")
                     self.output.emit(f"Generated {oss_file} with {len(oss_nodes)} nodes.")
                     if os.path.getsize(oss_file) > 0:
-
                         files_to_zip.add(oss_file)
-                        files_to_zip.add(os.path.join(folder_path, "command_mos.txt"))
                     else:
                         self.output.emit(f"[INFO] Skipping mobatch for {oss_file} (file empty)")
 
@@ -158,19 +157,46 @@ class UploadWorker(QObject):
 
             with open(local_run_cr_path, "w", encoding="utf-8", newline='\n') as f:
                 f.write(run_cr_content)
-            self.output.emit(f"Generated local {local_run_cr_path}")
+            self.output.emit(f"Generated local {local_run_cr_path}")            
 
             # 3. Create SFTP_CR_{ENM_SERVER}.zip with all files from each folder_path (recursively)
             with zipfile.ZipFile(local_zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
                 zipf.write(local_run_cr_path, os.path.basename(local_run_cr_path)) # Add RUN_CR to zip
-                # Add all files from each folder_path
+                # Add all files from files_to_zip (pre-post logic handled above)
                 base_dir = os.path.dirname(self.selected_folders[0]) if self.selected_folders else '.'
+                for file_path in files_to_zip:
+                    arcname = os.path.relpath(file_path, base_dir)
+                    zipf.write(file_path, arcname)
+
+                # For each selected folder, handle command_mos.txt (pre-post logic)
                 for folder_path in self.selected_folders:
-                    for root, dirs, files in os.walk(folder_path):
-                        for file in files:
-                            file_path = os.path.join(root, file)
-                            arcname = os.path.relpath(file_path, base_dir)
-                            zipf.write(file_path, arcname)
+                    command_mos_path = os.path.join(folder_path, "command_mos.txt")
+                    arcname = os.path.relpath(command_mos_path, base_dir)
+                    if self.collect_prepost_checked and os.path.exists(command_mos_path):
+                        tmp_command_mos_path = os.path.join(folder_path, f"tmp_command_mos_{ENM_SERVER}.txt")
+                        with open(command_mos_path, "r", encoding="utf-8") as f:
+                            content = f.read()
+                        with open(tmp_command_mos_path, "w", encoding="utf-8") as f:
+                            f.write(
+                                "uv com_username=rbs\nuv com_password=rbs\nlt cell|sectorcar|iublink\ny\n\n"
+                                "####LOG_Alarm_bf\naltc\n"
+                                "####LOG_status_bf\n"
+                                "hgetc ^(UtranCell|NRCellDU|EUtranCell.DD|NodeBLocalCell|trx|RbsLocalCell)= ^(operationalState|administrativeState)$"
+                                "\n\n\n"
+                            )
+                            f.write(content)
+                            f.write(
+                                "\n\n\nwait 5\n"
+                                "uv com_username=rbs\nuv com_password=rbs\nlt cell|sectorcar|iublink\ny\n\n"
+                                "####LOG_Alarm_af\naltc\n"
+                                "####LOG_status_af\n"
+                                "hgetc ^(UtranCell|NRCellDU|EUtranCell.DD|NodeBLocalCell|trx|RbsLocalCell)= ^(operationalState|administrativeState)$"
+                                "\n\n\n"
+                            )
+                        zipf.write(tmp_command_mos_path, arcname)
+                        os.remove(tmp_command_mos_path)
+                    elif os.path.exists(command_mos_path):
+                        zipf.write(command_mos_path, arcname)
 
                 # Add 01_SCRIPT/mobatch_v2.py to the zip
                 if self.mobatch_execution_mode == "PYTHON_MOBATCH":

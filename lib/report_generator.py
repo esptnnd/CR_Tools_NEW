@@ -305,8 +305,9 @@ def CATEGORY_CHECKING(TAG_RESULT):
 class ExcelReaderApp(QMainWindow):
     processing_finished = pyqtSignal()
     
-    def __init__(self):
+    def __init__(self, start_path=None):
         super().__init__()
+        self.start_path = start_path or os.path.expanduser('~')
         self.initUI()
         self.file_queue = Queue()  # Queue to store selected files
         self.append_log_data = []  # Initialize an empty list to store log data
@@ -463,7 +464,7 @@ class ExcelReaderApp(QMainWindow):
    
 
     def open_folder_dialog(self):
-        self.folder_path = QFileDialog.getExistingDirectory(self, "Select Folder")
+        self.folder_path = QFileDialog.getExistingDirectory(self, "Select Folder", self.start_path)
         if self.folder_path:
             self.populate_file_list()
     

@@ -546,33 +546,34 @@ class ParseDumpWorker(QThread):
         except Exception as e:
             self.error.emit(f"❌ Error saat parse_dump: {e}")
 
-def select_dump_and_excel(parent, log_callback=None):
+def select_dump_and_excel(parent, log_callback=None, start_path=None):
     if log_callback:
         log_callback("=== Mulai proses SELECT DUMP and DATA_CELL.xlsx ===")
-    folder_path = QFileDialog.getExistingDirectory(parent, "Pilih Folder Dump")
+    start_path = start_path or os.path.expanduser('~')
+    folder_path = QFileDialog.getExistingDirectory(parent, "Pilih Folder Dump", start_path)
     if not folder_path:
         if log_callback:
-            log_callback("❌ Folder dump tidak dipilih.")
+            log_callback("\u274c Folder dump tidak dipilih.")
         return None, None
     if log_callback:
-        log_callback(f"📁 Folder dump: {folder_path}")
+        log_callback(f"\ud83d\udcc1 Folder dump: {folder_path}")
     file_path, _ = QFileDialog.getOpenFileName(parent, "Pilih DATA_CELL.xlsx", folder_path, "Excel Files (*.xlsx)")
     if not file_path:
         if log_callback:
-            log_callback("❌ DATA_CELL.xlsx tidak dipilih.")
+            log_callback("\u274c DATA_CELL.xlsx tidak dipilih.")
         return None, None
     if log_callback:
-        log_callback(f"📄 DATA_CELL.xlsx: {file_path}")
+        log_callback(f"\ud83d\udcc4 DATA_CELL.xlsx: {file_path}")
     try:
         df_ref = pd.read_excel(file_path, sheet_name="REF")
         if log_callback:
-            log_callback(f"✅ DATA_CELL.xlsx berhasil dibaca. Jumlah baris: {len(df_ref)}")
+            log_callback(f"\u2705 DATA_CELL.xlsx berhasil dibaca. Jumlah baris: {len(df_ref)}")
     except Exception as e:
         if log_callback:
-            log_callback(f"❌ Gagal membaca DATA_CELL.xlsx: {e}")
+            log_callback(f"\u274c Gagal membaca DATA_CELL.xlsx: {e}")
         return None, None
     if log_callback:
-        log_callback("🚀 Menjalankan parse_dump di background...")
+        log_callback("\ud83d\ude80 Menjalankan parse_dump di background...")
     return folder_path, df_ref
 
 

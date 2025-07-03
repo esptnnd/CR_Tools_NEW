@@ -64,7 +64,6 @@ class SSHManager(QMainWindow):
         self.ssh_targets_true = [] # Default value
         self.ssh_targets_dtac = [] # Default value
         self.CMD_BATCH_SEND_FORMAT = "cd {remote_base_dir}\nls -ltrh\n pkill -f \"SCREEN.*{screen_session}\" \n screen -S {screen_session} \n bash -i  RUN_CR_{ENM_SERVER}.txt && exit\n" # Default
-        ##self.CMD_BATCH_SEND_FORMAT_CMBULK = "cd {remote_base_dir}\nls -ltrh \n echo CMBULK_{ENM_SERVER}.txt \n grep -h -v BUKAN */0*BULK*txt \nmkdir -p {remote_base_dir}/LOG/\n  python CMBULK_import.py  stat  \n python CMBULK_import.py  stat   9999 >  {remote_base_dir}/LOG/CMBULK_{ENM_SERVER}.txt\n " # CMBULK IMPORT mode
         self.CMD_BATCH_SEND_FORMAT_CMBULK = (
             "cd {remote_base_dir}\n"
             "ls -ltrh\n"
@@ -74,6 +73,7 @@ class SSHManager(QMainWindow):
             "python CMBULK_import.py stat\n"
             "python CMBULK_import.py stat 9999 > {remote_base_dir}/LOG/CMBULK_{ENM_SERVER}.txt\n"
         )        
+        self.START_PATH = os.path.expanduser('~')
 
         try:
             with open(settings_path, 'r') as f:
@@ -84,6 +84,7 @@ class SSHManager(QMainWindow):
             self.ssh_targets_dtac = settings.get('ssh_targets_dtac', self.ssh_targets_dtac)
             self.CMD_BATCH_SEND_FORMAT = settings.get('CMD_BATCH_SEND_FORMAT', self.CMD_BATCH_SEND_FORMAT)
             self.CMD_BATCH_SEND_FORMAT_CMBULK = settings.get('CMD_BATCH_SEND_FORMAT_CMBULK', self.CMD_BATCH_SEND_FORMAT_CMBULK)
+            self.START_PATH = settings.get('START_PATH', self.START_PATH)
 
         except FileNotFoundError:
             QMessageBox.critical(self, "Configuration Error", f"settings.json not found at {settings_path}. Using default values.")
@@ -122,9 +123,9 @@ class SSHManager(QMainWindow):
         # Create separate widgets for TRUE and DTAC modes
         self.cr_executor_widget_true = CRExecutorWidget(self.ssh_targets_true, self, session_type="TRUE")
         self.cr_executor_widget_dtac = CRExecutorWidget(self.ssh_targets_dtac, self, session_type="DTAC")
-        self.excel_reader_app = ExcelReaderApp()
-        self.cmbulk_file_merge_widget = CMBulkFileMergeWidget()
-        self.rehoming_script_tools_widget = RehomingScriptToolsWidget()
+        self.excel_reader_app = ExcelReaderApp(start_path=self.START_PATH)
+        self.cmbulk_file_merge_widget = CMBulkFileMergeWidget(start_path=self.START_PATH)
+        self.rehoming_script_tools_widget = RehomingScriptToolsWidget(start_path=self.START_PATH)
 
         # Add widgets to the stacked widget
         self.stacked_widget.addWidget(self.cr_executor_widget_true)
@@ -270,16 +271,14 @@ class SSHManager(QMainWindow):
 
         # Open the upload CR dialog with the passed targets
         # Use UploadCRDialog from lib.dialogs
-        dlg = UploadCRDialog(targets, parent=self, ssh_manager=self)
+        dlg = UploadCRDialog(targets, parent=self, ssh_manager=self, start_path=self.START_PATH)
 
         # Connect the dialog's upload_requested signal to the SSHManager's handler
         dlg.upload_requested.connect(self.initiate_multi_session_upload)
 
-        # The signal connection is handled inside the dialog when the button is clicked,
-        # emitting to SSHManager.initiate_multi_session_upload.
         dlg.exec_()
 
-    def initiate_multi_session_upload(self, selected_folders, selected_sessions, selected_mode, mobatch_paralel, mobatch_timeout, mobatch_execution_mode, all_targets_for_session_type):
+    def initiate_multi_session_upload(self, selected_folders, selected_sessions, selected_mode, mobatch_paralel, mobatch_timeout, mobatch_execution_mode, all_targets_for_session_type, collect_prepost_checked):
         print("SSHManager: initiate_multi_session_upload called.") # Debug print
         print(f"Manager received upload request for folders: {selected_folders} to sessions: {selected_sessions}")
         print(f"Upload mode: {selected_mode}")
@@ -292,10 +291,7 @@ class SSHManager(QMainWindow):
         # Check connection status for all selected sessions
         print("SSHManager: Checking connection status...") # Debug print
         for session_name in selected_sessions:
-            # Find the correct SSHTab within the CRExecutorWidget
-            # Find the tab based on the *current* set of targets being managed by the active CRExecutorWidget
-            tab = self.find_ssh_tab(session_name) # This method finds tabs in the current cr_executor_widget
-            # Check if tab was found and if it's connected
+            tab = self.find_ssh_tab(session_name)
             if not tab or not tab.connected:
                 unconnected_sessions.append(session_name)
 
@@ -307,10 +303,8 @@ class SSHManager(QMainWindow):
             print(f"Upload cancelled due to unconnected sessions: {unconnected_sessions}")
             return # Stop the upload process
 
-        #### cleanup list temporary
-        print("SSHManager: Cleaning up local sites_list files...") # Debug print
+        print("SSHManager: Cleaning up local sites_list files...")
         for folder in selected_folders:
-            # Clean up existing sites_list_*.txt files in the current folder
             for file_name in os.listdir(folder):
                  if file_name.startswith('sites_list_') and file_name.endswith('.txt'):
                      file_path = os.path.join(folder, file_name)
@@ -320,15 +314,10 @@ class SSHManager(QMainWindow):
                      except Exception as e:
                          print(f"[WARNING] Failed to remove old sites_list file {file_name} in {folder}: {e}")
 
-
-        # SPLIT_RANDOMLY: Pre-split nodes among sessions before starting threads
         print(f"SSHManager: Processing mode: {selected_mode}") # Debug print
         session_to_nodes = None
         if selected_mode == "SPLIT_RANDOMLY":
-            # Gather all nodes from all selected folders
             all_nodes = []
-
-
             for folder in selected_folders:
                 sites_list_path = os.path.join(folder, "sites_list.txt")
                 if os.path.exists(sites_list_path):
@@ -340,24 +329,19 @@ class SSHManager(QMainWindow):
             for idx, node in enumerate(all_nodes):
                 split_nodes[idx % n_sessions].append(node)
             session_to_nodes = {session: split_nodes[i] for i, session in enumerate(selected_sessions)}
-            # Print the result
             print(selected_sessions)
             for i, group in enumerate(split_nodes):
                 print("Session {} nodes: {}".format(i + 1, group))
 
-        # If all selected sessions are connected, proceed with upload for each relevant tab
-        print("SSHManager: All selected sessions are connected. Proceeding with upload...") # Debug print
+        print("SSHManager: All selected sessions are connected. Proceeding with upload...")
         print()
-        for tab in self.get_current_cr_executor_widget().ssh_tabs: # Iterate through tabs in CRExecutorWidget
+        for tab in self.get_current_cr_executor_widget().ssh_tabs:
             if tab.target['session_name'] in selected_sessions:
                 print(f"SSHManager: Triggering upload for session: {tab.target['session_name']}") # Debug print
                 assigned_nodes = None
-                # Pass the node assignments if in SPLIT_RANDOMLY mode
                 if selected_mode == "SPLIT_RANDOMLY" and session_to_nodes:
                      assigned_nodes = session_to_nodes
 
-
-                # Pass the relevant subset of targets to the perform method if needed, or just the assigned nodes
                 tab.perform_sftp_and_remote_commands(
                     selected_folders,
                     selected_mode,
@@ -365,7 +349,8 @@ class SSHManager(QMainWindow):
                     mobatch_paralel,
                     mobatch_timeout,
                     assigned_nodes=assigned_nodes, # Pass the full mapping in SPLIT_RANDOMLY mode
-                    mobatch_execution_mode=mobatch_execution_mode
+                    mobatch_execution_mode=mobatch_execution_mode,
+                    collect_prepost_checked=collect_prepost_checked
                 ) # selected_sessions is list of names, assigned_nodes contains the mapping
 
     def open_download_log_dialog(self, targets):

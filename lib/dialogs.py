@@ -142,14 +142,15 @@ class ScreenSelectionDialog(QDialog):
 
 
 class UploadCRDialog(QDialog):
-    upload_requested = pyqtSignal(list, list, str, int, int, str, str, list)
+    upload_requested = pyqtSignal(list, list, str, int, int, str, str, list, bool)
 
-    def __init__(self, ssh_targets, parent=None, ssh_manager=None):
+    def __init__(self, ssh_targets, parent=None, ssh_manager=None, start_path=None):
         print('[PROFILE] UploadCRDialog __init__ start')
         t0 = time.time()
         super().__init__(parent)
         self.ssh_targets = ssh_targets
         self.ssh_manager = ssh_manager
+        self.start_path = start_path or os.path.expanduser('~')
         self.setWindowTitle("Upload CR")
         self.setMinimumSize(500, 400)
         layout = QVBoxLayout()
@@ -222,6 +223,8 @@ class UploadCRDialog(QDialog):
 
         # 3. Button "UPLOAD"
         upload_button_layout = QHBoxLayout()
+        self.collect_prepost_checkbox = QCheckBox("Collect Pre-Post")
+        upload_button_layout.addWidget(self.collect_prepost_checkbox)
         self.upload_button = QPushButton("UPLOAD")
         upload_button_layout.addStretch() # Push button to the right
         upload_button_layout.addWidget(self.upload_button)
@@ -244,7 +247,7 @@ class UploadCRDialog(QDialog):
         t0 = time.time()
         dlg = QFileDialog(self)
         dlg.setOption(QFileDialog.DontUseNativeDialog, True)
-        folder_path = dlg.getExistingDirectory(self, "Select Parent Folder Containing CRs")
+        folder_path = dlg.getExistingDirectory(self, "Select Parent Folder Containing CRs", self.start_path)
         print(f'[PROFILE] QFileDialog.getExistingDirectory end, elapsed: {time.time() - t0:.3f}s')
 
         if folder_path:
@@ -312,8 +315,11 @@ class UploadCRDialog(QDialog):
         # Get mobatch execution mode
         mobatch_execution_mode = self.mobatch_mode_combo.currentText()
 
+        # Get collect pre-post state
+        collect_prepost_checked = self.collect_prepost_checkbox.isChecked()
+
         # Emit the signal with the full paths of selected subfolders and sessions
-        self.upload_requested.emit(selected_folders_full_paths, selected_sessions, selected_mode, mobatch_paralel, mobatch_timeout, mobatch_execution_mode, mobatch_extra_argument, self.ssh_targets)
+        self.upload_requested.emit(selected_folders_full_paths, selected_sessions, selected_mode, mobatch_paralel, mobatch_timeout, mobatch_execution_mode, mobatch_extra_argument, self.ssh_targets, collect_prepost_checked)
 
         self.accept() # Close the dialog after emitting the signal
 
