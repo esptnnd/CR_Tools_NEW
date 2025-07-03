@@ -242,9 +242,15 @@ class SSHTab(QWidget):
         """Setup and start upload worker"""
         self.upload_thread = QThread()
         self.upload_worker = UploadWorker(
-            self.ssh.client, self.target, selected_folders, selected_mode,
-            selected_sessions, mobatch_paralel, mobatch_timeout,
-            assigned_nodes, mobatch_execution_mode,
+            ssh_client=self.ssh.client,
+            target_info=self.target,
+            selected_folders=selected_folders,
+            mode=selected_mode,
+            selected_sessions=selected_sessions,
+            mobatch_paralel=mobatch_paralel,
+            mobatch_timeout=mobatch_timeout,
+            assigned_nodes=assigned_nodes,
+            mobatch_execution_mode=mobatch_execution_mode,
             var_FOLDER_CR=self.ssh_manager.var_FOLDER_CR
         )
         

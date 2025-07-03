@@ -41,7 +41,8 @@ class UploadWorker(QObject):
         self.mobatch_execution_mode = mobatch_execution_mode # Store the selected mode
         self.mobatch_extra_argument = mobatch_extra_argument # Store extra mobatch arguments
         self.var_FOLDER_CR = var_FOLDER_CR
-        self.collect_prepost_checked = collect_prepost_checked
+        self.collect_prepost_checked = collect_prepost_checked  # Use the value as passed
+        self.output.emit(f"[CR_DEBUG_INIT] collect_prepost_checked={self.collect_prepost_checked} type={type(self.collect_prepost_checked)}")
 
     def stop(self):
         self._should_stop = True
@@ -146,6 +147,21 @@ class UploadWorker(QObject):
                     else:
                         self.output.emit(f"[INFO] Skipping mobatch for {oss_file} (file empty)")
 
+            # --- Cleanup: Remove any stray tmp_command_mos_* files before zipping ---
+            for folder_path in self.selected_folders:
+                # List all files in this folder (recursively)
+                all_files = []
+                for root, dirs, files in os.walk(folder_path):
+                    for file in files:
+                        all_files.append(os.path.join(root, file))
+                        if file.startswith('tmp_command_mos_'):
+                            try:
+                                os.remove(os.path.join(root, file))
+                                self.output.emit(f"[CLEANUP] Removed stray {file} from {root}")
+                            except Exception as e:
+                                self.output.emit(f"[CLEANUP ERROR] Could not remove {file} from {root}: {e}")
+                self.output.emit(f"[CR_DEBUG_UPLOAD][{folder_path}]  VALUE_collect_prepost_checked={self.collect_prepost_checked}  files_to_zip={list(files_to_zip)}  all_files={all_files}")
+
             # 2. Create local RUN_CR_{ENM_SERVER}.txt
             if self.mobatch_execution_mode == "PYTHON_MOBATCH":
                 # Use self.var_FOLDER_CR
@@ -166,37 +182,67 @@ class UploadWorker(QObject):
                 base_dir = os.path.dirname(self.selected_folders[0]) if self.selected_folders else '.'
                 for file_path in files_to_zip:
                     arcname = os.path.relpath(file_path, base_dir)
+                    # Skip command_mos.txt here, it will be handled in the walk below
+                    if os.path.basename(file_path) == 'command_mos.txt':
+                        continue
                     zipf.write(file_path, arcname)
 
-                # For each selected folder, handle command_mos.txt (pre-post logic)
+                # For each selected folder, handle all files recursively (including special handling for command_mos.txt)
+                already_zipped = set()
+                already_zipped.add(os.path.basename(local_run_cr_path))
+                for file_path in files_to_zip:
+                    arcname = os.path.relpath(file_path, base_dir)
+                    already_zipped.add(arcname)
+                # Debug output for each folder before recursive file handling
                 for folder_path in self.selected_folders:
-                    command_mos_path = os.path.join(folder_path, "command_mos.txt")
-                    arcname = os.path.relpath(command_mos_path, base_dir)
-                    if self.collect_prepost_checked and os.path.exists(command_mos_path):
-                        tmp_command_mos_path = os.path.join(folder_path, f"tmp_command_mos_{ENM_SERVER}.txt")
-                        with open(command_mos_path, "r", encoding="utf-8") as f:
-                            content = f.read()
-                        with open(tmp_command_mos_path, "w", encoding="utf-8") as f:
-                            f.write(
-                                "uv com_username=rbs\nuv com_password=rbs\nlt cell|sectorcar|iublink\ny\n\n"
-                                "####LOG_Alarm_bf\naltc\n"
-                                "####LOG_status_bf\n"
-                                "hgetc ^(UtranCell|NRCellDU|EUtranCell.DD|NodeBLocalCell|trx|RbsLocalCell)= ^(operationalState|administrativeState)$"
-                                "\n\n\n"
-                            )
-                            f.write(content)
-                            f.write(
-                                "\n\n\nwait 5\n"
-                                "uv com_username=rbs\nuv com_password=rbs\nlt cell|sectorcar|iublink\ny\n\n"
-                                "####LOG_Alarm_af\naltc\n"
-                                "####LOG_status_af\n"
-                                "hgetc ^(UtranCell|NRCellDU|EUtranCell.DD|NodeBLocalCell|trx|RbsLocalCell)= ^(operationalState|administrativeState)$"
-                                "\n\n\n"
-                            )
-                        zipf.write(tmp_command_mos_path, arcname)
-                        os.remove(tmp_command_mos_path)
-                    elif os.path.exists(command_mos_path):
-                        zipf.write(command_mos_path, arcname)
+                    # List all files in this folder (recursively)
+                    all_files = []
+                    for root, dirs, files in os.walk(folder_path):
+                        for file in files:
+                            all_files.append(os.path.join(root, file))
+                    self.output.emit(f"[CR_DEBUG_UPLOAD][{folder_path}]  VALUE_collect_prepost_checked={self.collect_prepost_checked}  files_to_zip={list(files_to_zip)}  all_files={all_files}")
+                for folder_path in self.selected_folders:
+                    for root, dirs, files in os.walk(folder_path):
+                        for file in files:
+                            file_path = os.path.join(root, file)
+                            arcname = os.path.relpath(file_path, base_dir)
+                            if arcname in already_zipped:
+                                continue
+                            # Special handling for command_mos.txt
+                            if file == 'command_mos.txt':
+                                if self.collect_prepost_checked:
+                                    tmp_command_mos_path = os.path.join(root, f"tmp_command_mos_{ENM_SERVER}.txt")
+                                    with open(file_path, "r", encoding="utf-8") as f:
+                                        content = f.read()
+                                    with open(tmp_command_mos_path, "w", encoding="utf-8") as f:
+                                        f.write(
+                                            "uv com_username=rbs\nuv com_password=rbs\nlt cell|sectorcar|iublink\ny\n\n"
+                                            "####LOG_Alarm_bf\naltc\n"
+                                            "####LOG_status_bf\n"
+                                            "hgetc ^(UtranCell|NRCellDU|EUtranCell.DD|NodeBLocalCell|trx|RbsLocalCell)= ^(operationalState|administrativeState)$"
+                                            "\n\n\n"
+                                        )
+                                        f.write(content)
+                                        f.write(
+                                            "\n\n\nwait 5\n"
+                                            "uv com_username=rbs\nuv com_password=rbs\nlt cell|sectorcar|iublink\ny\n\n"
+                                            "####LOG_Alarm_af\naltc\n"
+                                            "####LOG_status_af\n"
+                                            "hgetc ^(UtranCell|NRCellDU|EUtranCell.DD|NodeBLocalCell|trx|RbsLocalCell)= ^(operationalState|administrativeState)$"
+                                            "\n\n\n"
+                                        )
+                                    zipf.write(tmp_command_mos_path, arcname)
+                                    already_zipped.add(arcname)
+                                    os.remove(tmp_command_mos_path)
+                                else:
+                                    zipf.write(file_path, arcname)
+                                    already_zipped.add(arcname)
+                                continue
+                            # Optionally skip temp/intermediate files
+                            if file.startswith('tmp_command_mos_'):
+                                continue
+                            zipf.write(file_path, arcname)
+                            already_zipped.add(arcname)
 
                 # Add 01_SCRIPT/mobatch_v2.py to the zip
                 if self.mobatch_execution_mode == "PYTHON_MOBATCH":

@@ -51,11 +51,15 @@ from lib.SSHTab import SSHTab
 
 class SSHManager(QMainWindow):
     def __init__(self):
+        start_time = time.time()
+        print(f"[TIMER] Start __init__ at {start_time}")
         super().__init__()
+        print(f"[TIMER] After super().__init__: {time.time() - start_time:.2f}s")
         self.setWindowTitle("CR TOOLS by esptnnd")
         
         # Setup window styling
         setup_window_style(self)
+        print(f"[TIMER] After setup_window_style: {time.time() - start_time:.2f}s")
 
         # Load configuration from settings.json
         settings_path = os.path.join(os.path.dirname(__file__), 'settings.json')
@@ -85,6 +89,7 @@ class SSHManager(QMainWindow):
             self.CMD_BATCH_SEND_FORMAT = settings.get('CMD_BATCH_SEND_FORMAT', self.CMD_BATCH_SEND_FORMAT)
             self.CMD_BATCH_SEND_FORMAT_CMBULK = settings.get('CMD_BATCH_SEND_FORMAT_CMBULK', self.CMD_BATCH_SEND_FORMAT_CMBULK)
             self.START_PATH = settings.get('START_PATH', self.START_PATH)
+            print(f"[TIMER] After loading settings.json: {time.time() - start_time:.2f}s")
 
         except FileNotFoundError:
             QMessageBox.critical(self, "Configuration Error", f"settings.json not found at {settings_path}. Using default values.")
@@ -96,6 +101,7 @@ class SSHManager(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Configuration Error", f"An unexpected error occurred loading settings.json: {e}. Using default values.")
             print(f"Unexpected error loading settings.json: {e}. Using default values.")
+        print(f"[TIMER] After config load: {time.time() - start_time:.2f}s")
 
         # Create Menu Bar
         self.menu_bar = self.menuBar()
@@ -115,17 +121,28 @@ class SSHManager(QMainWindow):
         self.menu_tools.addAction(self.action_concheck_tools)
         self.menu_tools.addAction(self.action_cmbulk_file_merge)
         
+        print(f"[TIMER] After menu setup: {time.time() - start_time:.2f}s")
 
         # Create Stacked Widget
         self.stacked_widget = QStackedWidget()
         self.setCentralWidget(self.stacked_widget)
 
         # Create separate widgets for TRUE and DTAC modes
+        widget_time = time.time()
         self.cr_executor_widget_true = CRExecutorWidget(self.ssh_targets_true, self, session_type="TRUE")
+        print(f"[TIMER] After cr_executor_widget_true: {time.time() - widget_time:.2f}s")
+        widget_time = time.time()
         self.cr_executor_widget_dtac = CRExecutorWidget(self.ssh_targets_dtac, self, session_type="DTAC")
+        print(f"[TIMER] After cr_executor_widget_dtac: {time.time() - widget_time:.2f}s")
+        widget_time = time.time()
         self.excel_reader_app = ExcelReaderApp(start_path=self.START_PATH)
+        print(f"[TIMER] After excel_reader_app: {time.time() - widget_time:.2f}s")
+        widget_time = time.time()
         self.cmbulk_file_merge_widget = CMBulkFileMergeWidget(start_path=self.START_PATH)
+        print(f"[TIMER] After cmbulk_file_merge_widget: {time.time() - widget_time:.2f}s")
+        widget_time = time.time()
         self.rehoming_script_tools_widget = RehomingScriptToolsWidget(start_path=self.START_PATH)
+        print(f"[TIMER] After rehoming_script_tools_widget: {time.time() - widget_time:.2f}s")
 
         # Add widgets to the stacked widget
         self.stacked_widget.addWidget(self.cr_executor_widget_true)
@@ -133,6 +150,7 @@ class SSHManager(QMainWindow):
         self.stacked_widget.addWidget(self.excel_reader_app)
         self.stacked_widget.addWidget(self.cmbulk_file_merge_widget)
         self.stacked_widget.addWidget(self.rehoming_script_tools_widget)
+        print(f"[TIMER] After adding widgets to stacked_widget: {time.time() - start_time:.2f}s")
 
         # Connect menu actions to switch widgets
         self.action_cr_executor_true.triggered.connect(self.show_cr_executor_true)
@@ -147,6 +165,7 @@ class SSHManager(QMainWindow):
 
         # Show the TRUE CR Executor form initially
         self.show_cr_executor_true()
+        print(f"[TIMER] End of __init__: {time.time() - start_time:.2f}s")
 
     def resizeEvent(self, event):
         # Update window styling when resized
@@ -278,7 +297,17 @@ class SSHManager(QMainWindow):
 
         dlg.exec_()
 
-    def initiate_multi_session_upload(self, selected_folders, selected_sessions, selected_mode, mobatch_paralel, mobatch_timeout, mobatch_execution_mode, all_targets_for_session_type, collect_prepost_checked):
+    def initiate_multi_session_upload(self, selected_folders, selected_sessions, selected_mode, mobatch_paralel, mobatch_timeout, mobatch_execution_mode, mobatch_extra_argument, all_targets_for_session_type, collect_prepost_checked):
+        print("[CR_DEBUG_SIGNAL] Arguments received in initiate_multi_session_upload:")
+        print(f"  selected_folders={selected_folders} type={type(selected_folders)}")
+        print(f"  selected_sessions={selected_sessions} type={type(selected_sessions)}")
+        print(f"  selected_mode={selected_mode} type={type(selected_mode)}")
+        print(f"  mobatch_paralel={mobatch_paralel} type={type(mobatch_paralel)}")
+        print(f"  mobatch_timeout={mobatch_timeout} type={type(mobatch_timeout)}")
+        print(f"  mobatch_execution_mode={mobatch_execution_mode} type={type(mobatch_execution_mode)}")
+        print(f"  mobatch_extra_argument={mobatch_extra_argument} type={type(mobatch_extra_argument)}")
+        print(f"  all_targets_for_session_type={all_targets_for_session_type} type={type(all_targets_for_session_type)}")
+        print(f"  collect_prepost_checked={collect_prepost_checked} type={type(collect_prepost_checked)}")
         print("SSHManager: initiate_multi_session_upload called.") # Debug print
         print(f"Manager received upload request for folders: {selected_folders} to sessions: {selected_sessions}")
         print(f"Upload mode: {selected_mode}")
