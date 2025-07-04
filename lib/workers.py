@@ -19,7 +19,7 @@ import time # Needed for UploadWorker and DownloadLogWorker
 import zipfile # Needed for UploadWorker and DownloadLogWorker
 
 # Import utility functions if needed by the worker
-from .utils import remove_ansi_escape_sequences # Although not directly used in these workers' run methods, it's used in classes that might interact with them or in related utility code.
+from .utils import remove_ansi_escape_sequences, debug_print # Added debug_print
 
 class UploadWorker(QObject):
     progress = pyqtSignal(int) # Signal for progress updates (0-100)
@@ -43,6 +43,7 @@ class UploadWorker(QObject):
         self.var_FOLDER_CR = var_FOLDER_CR
         self.collect_prepost_checked = collect_prepost_checked  # Use the value as passed
         self.output.emit(f"[CR_DEBUG_INIT] collect_prepost_checked={self.collect_prepost_checked} type={type(self.collect_prepost_checked)}")
+        debug_print(f"[CR_DEBUG_INIT] collect_prepost_checked={self.collect_prepost_checked} type={type(self.collect_prepost_checked)}")
 
     def stop(self):
         self._should_stop = True
@@ -161,6 +162,7 @@ class UploadWorker(QObject):
                             except Exception as e:
                                 self.output.emit(f"[CLEANUP ERROR] Could not remove {file} from {root}: {e}")
                 self.output.emit(f"[CR_DEBUG_UPLOAD][{folder_path}]  VALUE_collect_prepost_checked={self.collect_prepost_checked}  files_to_zip={list(files_to_zip)}  all_files={all_files}")
+                debug_print(f"[CR_DEBUG_UPLOAD][{folder_path}]  VALUE_collect_prepost_checked={self.collect_prepost_checked}  files_to_zip={list(files_to_zip)}  all_files={all_files}")
 
             # 2. Create local RUN_CR_{ENM_SERVER}.txt
             if self.mobatch_execution_mode == "PYTHON_MOBATCH":
@@ -201,6 +203,7 @@ class UploadWorker(QObject):
                         for file in files:
                             all_files.append(os.path.join(root, file))
                     self.output.emit(f"[CR_DEBUG_UPLOAD][{folder_path}]  VALUE_collect_prepost_checked={self.collect_prepost_checked}  files_to_zip={list(files_to_zip)}  all_files={all_files}")
+                    debug_print(f"[CR_DEBUG_UPLOAD][{folder_path}]  VALUE_collect_prepost_checked={self.collect_prepost_checked}  files_to_zip={list(files_to_zip)}  all_files={all_files}")
                 for folder_path in self.selected_folders:
                     for root, dirs, files in os.walk(folder_path):
                         for file in files:

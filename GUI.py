@@ -48,18 +48,19 @@ from lib.style import (
     StyledListWidget, StyledContainer
 )
 from lib.SSHTab import SSHTab
+from lib.utils import debug_print
 
 class SSHManager(QMainWindow):
     def __init__(self):
         start_time = time.time()
-        print(f"[TIMER] Start __init__ at {start_time}")
+        debug_print(f"[TIMER] Start __init__ at {start_time}")
         super().__init__()
-        print(f"[TIMER] After super().__init__: {time.time() - start_time:.2f}s")
+        debug_print(f"[TIMER] After super().__init__: {time.time() - start_time:.2f}s")
         self.setWindowTitle("CR TOOLS by esptnnd")
         
         # Setup window styling
         setup_window_style(self)
-        print(f"[TIMER] After setup_window_style: {time.time() - start_time:.2f}s")
+        debug_print(f"[TIMER] After setup_window_style: {time.time() - start_time:.2f}s")
 
         # Load configuration from settings.json
         settings_path = os.path.join(os.path.dirname(__file__), 'settings.json')
@@ -89,19 +90,25 @@ class SSHManager(QMainWindow):
             self.CMD_BATCH_SEND_FORMAT = settings.get('CMD_BATCH_SEND_FORMAT', self.CMD_BATCH_SEND_FORMAT)
             self.CMD_BATCH_SEND_FORMAT_CMBULK = settings.get('CMD_BATCH_SEND_FORMAT_CMBULK', self.CMD_BATCH_SEND_FORMAT_CMBULK)
             self.START_PATH = settings.get('START_PATH', self.START_PATH)
-            print(f"[TIMER] After loading settings.json: {time.time() - start_time:.2f}s")
+            self.DEBUG_MODE = settings.get('DEBUG_MODE', 'DEBUG')
+            if self.DEBUG_MODE == 'DEBUG':
+                debug_print(f"[TIMER] After loading settings.json: {time.time() - start_time:.2f}s")
 
         except FileNotFoundError:
             QMessageBox.critical(self, "Configuration Error", f"settings.json not found at {settings_path}. Using default values.")
-            print(f"Error: settings.json not found at {settings_path}. Using default values.")
+            if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
+                debug_print(f"Error: settings.json not found at {settings_path}. Using default values.")
 
         except json.JSONDecodeError as e:
             QMessageBox.critical(self, "Configuration Error", f"Error decoding settings.json at {settings_path}: {e}. Using default values.")
-            print(f"Error: Could not decode settings.json at {settings_path}: {e}. Using default values.")
+            if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
+                debug_print(f"Error: Could not decode settings.json at {settings_path}: {e}. Using default values.")
         except Exception as e:
             QMessageBox.critical(self, "Configuration Error", f"An unexpected error occurred loading settings.json: {e}. Using default values.")
-            print(f"Unexpected error loading settings.json: {e}. Using default values.")
-        print(f"[TIMER] After config load: {time.time() - start_time:.2f}s")
+            if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
+                debug_print(f"Unexpected error loading settings.json: {e}. Using default values.")
+        if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
+            debug_print(f"[TIMER] After config load: {time.time() - start_time:.2f}s")
 
         # Create Menu Bar
         self.menu_bar = self.menuBar()
@@ -121,7 +128,8 @@ class SSHManager(QMainWindow):
         self.menu_tools.addAction(self.action_concheck_tools)
         self.menu_tools.addAction(self.action_cmbulk_file_merge)
         
-        print(f"[TIMER] After menu setup: {time.time() - start_time:.2f}s")
+        if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
+            debug_print(f"[TIMER] After menu setup: {time.time() - start_time:.2f}s")
 
         # Create Stacked Widget
         self.stacked_widget = QStackedWidget()
@@ -130,19 +138,24 @@ class SSHManager(QMainWindow):
         # Create separate widgets for TRUE and DTAC modes
         widget_time = time.time()
         self.cr_executor_widget_true = CRExecutorWidget(self.ssh_targets_true, self, session_type="TRUE")
-        print(f"[TIMER] After cr_executor_widget_true: {time.time() - widget_time:.2f}s")
+        if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
+            debug_print(f"[TIMER] After cr_executor_widget_true: {time.time() - widget_time:.2f}s")
         widget_time = time.time()
         self.cr_executor_widget_dtac = CRExecutorWidget(self.ssh_targets_dtac, self, session_type="DTAC")
-        print(f"[TIMER] After cr_executor_widget_dtac: {time.time() - widget_time:.2f}s")
+        if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
+            debug_print(f"[TIMER] After cr_executor_widget_dtac: {time.time() - widget_time:.2f}s")
         widget_time = time.time()
         self.excel_reader_app = ExcelReaderApp(start_path=self.START_PATH)
-        print(f"[TIMER] After excel_reader_app: {time.time() - widget_time:.2f}s")
+        if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
+            debug_print(f"[TIMER] After excel_reader_app: {time.time() - widget_time:.2f}s")
         widget_time = time.time()
         self.cmbulk_file_merge_widget = CMBulkFileMergeWidget(start_path=self.START_PATH)
-        print(f"[TIMER] After cmbulk_file_merge_widget: {time.time() - widget_time:.2f}s")
+        if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
+            debug_print(f"[TIMER] After cmbulk_file_merge_widget: {time.time() - widget_time:.2f}s")
         widget_time = time.time()
         self.rehoming_script_tools_widget = RehomingScriptToolsWidget(start_path=self.START_PATH)
-        print(f"[TIMER] After rehoming_script_tools_widget: {time.time() - widget_time:.2f}s")
+        if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
+            debug_print(f"[TIMER] After rehoming_script_tools_widget: {time.time() - widget_time:.2f}s")
 
         # Add widgets to the stacked widget
         self.stacked_widget.addWidget(self.cr_executor_widget_true)
@@ -150,7 +163,8 @@ class SSHManager(QMainWindow):
         self.stacked_widget.addWidget(self.excel_reader_app)
         self.stacked_widget.addWidget(self.cmbulk_file_merge_widget)
         self.stacked_widget.addWidget(self.rehoming_script_tools_widget)
-        print(f"[TIMER] After adding widgets to stacked_widget: {time.time() - start_time:.2f}s")
+        if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
+            debug_print(f"[TIMER] After adding widgets to stacked_widget: {time.time() - start_time:.2f}s")
 
         # Connect menu actions to switch widgets
         self.action_cr_executor_true.triggered.connect(self.show_cr_executor_true)
@@ -165,7 +179,8 @@ class SSHManager(QMainWindow):
 
         # Show the TRUE CR Executor form initially
         self.show_cr_executor_true()
-        print(f"[TIMER] End of __init__: {time.time() - start_time:.2f}s")
+        if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
+            debug_print(f"[TIMER] End of __init__: {time.time() - start_time:.2f}s")
 
     def resizeEvent(self, event):
         # Update window styling when resized
@@ -214,7 +229,8 @@ class SSHManager(QMainWindow):
         # Ensure targets is a list before proceeding
         if not isinstance(targets, list):
             QMessageBox.critical(self, "Internal Error", f"Received invalid data for sessions. Expected list, got {type(targets).__name__}")
-            print(f"Error: open_multi_connect_dialog received unexpected targets type: {type(targets).__name__}")
+            if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
+                debug_print(f"Error: open_multi_connect_dialog received unexpected targets type: {type(targets).__name__}")
             return
 
         # Open the dialog with the passed targets
@@ -225,13 +241,16 @@ class SSHManager(QMainWindow):
             if current_widget:
                 self.connect_multiple_sessions(selected_sessions)
             else:
-                print("Error: No active CR Executor widget to connect sessions.")
+                if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
+                    debug_print("Error: No active CR Executor widget to connect sessions.")
 
     def connect_multiple_sessions(self, selected_sessions):
-        print(f"Attempting to connect to selected sessions: {selected_sessions}")
+        if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
+            debug_print(f"Attempting to connect to selected sessions: {selected_sessions}")
         current_widget = self.get_current_cr_executor_widget()
         if not current_widget:
-            print("Error: No active CR Executor widget to connect sessions.")
+            if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
+                debug_print("Error: No active CR Executor widget to connect sessions.")
             return
 
         for session_name in selected_sessions:
@@ -259,29 +278,34 @@ class SSHManager(QMainWindow):
             tab.append_output(text)
 
     def closeEvent(self, event):
-        print("Closing SSH Manager...")
+        if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
+            debug_print("Closing SSH Manager...")
         # Clean up all tabs in both CR Executor widgets before closing
         if self.cr_executor_widget_true:
             self.cleanup_cr_executor_tabs(self.cr_executor_widget_true)
         if self.cr_executor_widget_dtac:
             self.cleanup_cr_executor_tabs(self.cr_executor_widget_dtac)
-        print("Accepting close event.")
+        if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
+            debug_print("Accepting close event.")
         event.accept()
 
     def profile_tab_change(self, index):
         import time
         t0 = time.time()
-        print(f'[PROFILE] Tab change to index {index} started')
+        if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
+            debug_print(f'[PROFILE] Tab change to index {index} started')
         # Optionally, you can do more here (e.g., check which tab, log tab name)
         # QApplication.processEvents()  # Removed to avoid potential re-entrancy issues
         t1 = time.time()
-        print(f'[PROFILE] Tab change to index {index} finished, elapsed: {t1 - t0:.3f}s')
+        if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
+            debug_print(f'[PROFILE] Tab change to index {index} finished, elapsed: {t1 - t0:.3f}s')
 
     def open_upload_cr_dialog(self, targets):
         # Ensure targets is a list before proceeding
         if not isinstance(targets, list):
             QMessageBox.critical(self, "Internal Error", f"Received invalid data for sessions. Expected list, got {type(targets).__name__}")
-            print(f"Error: open_upload_cr_dialog received unexpected targets type: {type(targets).__name__}")
+            if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
+                debug_print(f"Error: open_upload_cr_dialog received unexpected targets type: {type(targets).__name__}")
             return
 
         if not self.get_current_cr_executor_widget():
@@ -298,27 +322,29 @@ class SSHManager(QMainWindow):
         dlg.exec_()
 
     def initiate_multi_session_upload(self, selected_folders, selected_sessions, selected_mode, mobatch_paralel, mobatch_timeout, mobatch_execution_mode, mobatch_extra_argument, all_targets_for_session_type, collect_prepost_checked):
-        print("[CR_DEBUG_SIGNAL] Arguments received in initiate_multi_session_upload:")
-        print(f"  selected_folders={selected_folders} type={type(selected_folders)}")
-        print(f"  selected_sessions={selected_sessions} type={type(selected_sessions)}")
-        print(f"  selected_mode={selected_mode} type={type(selected_mode)}")
-        print(f"  mobatch_paralel={mobatch_paralel} type={type(mobatch_paralel)}")
-        print(f"  mobatch_timeout={mobatch_timeout} type={type(mobatch_timeout)}")
-        print(f"  mobatch_execution_mode={mobatch_execution_mode} type={type(mobatch_execution_mode)}")
-        print(f"  mobatch_extra_argument={mobatch_extra_argument} type={type(mobatch_extra_argument)}")
-        print(f"  all_targets_for_session_type={all_targets_for_session_type} type={type(all_targets_for_session_type)}")
-        print(f"  collect_prepost_checked={collect_prepost_checked} type={type(collect_prepost_checked)}")
-        print("SSHManager: initiate_multi_session_upload called.") # Debug print
-        print(f"Manager received upload request for folders: {selected_folders} to sessions: {selected_sessions}")
-        print(f"Upload mode: {selected_mode}")
-        print(f"mobatch_paralel: {mobatch_paralel}, mobatch_timeout: {mobatch_timeout}")
+        if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
+            debug_print("[CR_DEBUG_SIGNAL] Arguments received in initiate_multi_session_upload:")
+            debug_print(f"  selected_folders={selected_folders} type={type(selected_folders)}")
+            debug_print(f"  selected_sessions={selected_sessions} type={type(selected_sessions)}")
+            debug_print(f"  selected_mode={selected_mode} type={type(selected_mode)}")
+            debug_print(f"  mobatch_paralel={mobatch_paralel} type={type(mobatch_paralel)}")
+            debug_print(f"  mobatch_timeout={mobatch_timeout} type={type(mobatch_timeout)}")
+            debug_print(f"  mobatch_execution_mode={mobatch_execution_mode} type={type(mobatch_execution_mode)}")
+            debug_print(f"  mobatch_extra_argument={mobatch_extra_argument} type={type(mobatch_extra_argument)}")
+            debug_print(f"  all_targets_for_session_type={all_targets_for_session_type} type={type(all_targets_for_session_type)}")
+            debug_print(f"  collect_prepost_checked={collect_prepost_checked} type={type(collect_prepost_checked)}")
+        debug_print("SSHManager: initiate_multi_session_upload called.") # Debug print
+        debug_print(f"Manager received upload request for folders: {selected_folders} to sessions: {selected_sessions}")
+        debug_print(f"Upload mode: {selected_mode}")
+        debug_print(f"mobatch_paralel: {mobatch_paralel}, mobatch_timeout: {mobatch_timeout}")
 
         # Use the targets passed from the dialog (which came from the active CRExecutorWidget)
         current_targets = all_targets_for_session_type
 
         unconnected_sessions = []
         # Check connection status for all selected sessions
-        print("SSHManager: Checking connection status...") # Debug print
+        if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
+            debug_print("SSHManager: Checking connection status...") # Debug print
         for session_name in selected_sessions:
             tab = self.find_ssh_tab(session_name)
             if not tab or not tab.connected:
@@ -329,21 +355,24 @@ class SSHManager(QMainWindow):
                                 f"The following selected sessions are not connected:\n" +
                                 "\n".join(unconnected_sessions) +
                                 "\nPlease connect them before uploading.")
-            print(f"Upload cancelled due to unconnected sessions: {unconnected_sessions}")
+            if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
+                debug_print(f"Upload cancelled due to unconnected sessions: {unconnected_sessions}")
             return # Stop the upload process
 
-        print("SSHManager: Cleaning up local sites_list files...")
+        debug_print("SSHManager: Cleaning up local sites_list files...")
         for folder in selected_folders:
             for file_name in os.listdir(folder):
                  if file_name.startswith('sites_list_') and file_name.endswith('.txt'):
                      file_path = os.path.join(folder, file_name)
                      try:
                          os.remove(file_path)
-                         print(f"Cleaned up old sites_list file in {folder}: {file_name}")
+                         if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
+                             debug_print(f"Cleaned up old sites_list file in {folder}: {file_name}")
                      except Exception as e:
-                         print(f"[WARNING] Failed to remove old sites_list file {file_name} in {folder}: {e}")
+                         if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
+                             debug_print(f"[WARNING] Failed to remove old sites_list file {file_name} in {folder}: {e}")
 
-        print(f"SSHManager: Processing mode: {selected_mode}") # Debug print
+        debug_print(f"SSHManager: Processing mode: {selected_mode}") # Debug print
         session_to_nodes = None
         if selected_mode == "SPLIT_RANDOMLY":
             all_nodes = []
@@ -358,15 +387,17 @@ class SSHManager(QMainWindow):
             for idx, node in enumerate(all_nodes):
                 split_nodes[idx % n_sessions].append(node)
             session_to_nodes = {session: split_nodes[i] for i, session in enumerate(selected_sessions)}
-            print(selected_sessions)
-            for i, group in enumerate(split_nodes):
-                print("Session {} nodes: {}".format(i + 1, group))
+            if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
+                debug_print(selected_sessions)
+                for i, group in enumerate(split_nodes):
+                    debug_print("Session {} nodes: {}".format(i + 1, group))
 
-        print("SSHManager: All selected sessions are connected. Proceeding with upload...")
-        print()
+        debug_print("SSHManager: All selected sessions are connected. Proceeding with upload...")
+        debug_print()
         for tab in self.get_current_cr_executor_widget().ssh_tabs:
             if tab.target['session_name'] in selected_sessions:
-                print(f"SSHManager: Triggering upload for session: {tab.target['session_name']}") # Debug print
+                if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
+                    debug_print(f"SSHManager: Triggering upload for session: {tab.target['session_name']}") # Debug print
                 assigned_nodes = None
                 if selected_mode == "SPLIT_RANDOMLY" and session_to_nodes:
                      assigned_nodes = session_to_nodes
@@ -386,7 +417,8 @@ class SSHManager(QMainWindow):
         # Ensure targets is a list before proceeding
         if not isinstance(targets, list):
             QMessageBox.critical(self, "Internal Error", f"Received invalid data for sessions. Expected list, got {type(targets).__name__}")
-            print(f"Error: open_download_log_dialog received unexpected targets type: {type(targets).__name__}")
+            if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
+                debug_print(f"Error: open_download_log_dialog received unexpected targets type: {type(targets).__name__}")
             return
 
         if not self.get_current_cr_executor_widget():
@@ -412,7 +444,7 @@ class SSHManager(QMainWindow):
             # Clear the 02_DOWNLOAD directory before starting new downloads
             download_dir = os.path.join(os.path.dirname(__file__), '02_DOWNLOAD')
             if os.path.exists(download_dir):
-                print(f"Clearing directory: {download_dir}")
+                debug_print(f"Clearing directory: {download_dir}")
                 try:
                     for item in os.listdir(download_dir):
                         item_path = os.path.join(download_dir, item)
@@ -423,9 +455,9 @@ class SSHManager(QMainWindow):
                                 import shutil
                                 shutil.rmtree(item_path)
                         except Exception as e:
-                            print(f"Warning: Failed to remove {item_path}: {e}")
+                            debug_print(f"Warning: Failed to remove {item_path}: {e}")
                 except Exception as e:
-                    print(f"Warning: Error accessing download directory: {e}")
+                    debug_print(f"Warning: Error accessing download directory: {e}")
 
             # Clean up any existing download threads
             self._cleanup_existing_downloads(current_widget)
@@ -475,21 +507,21 @@ class SSHManager(QMainWindow):
                                 if hasattr(tab.download_worker, 'stop'):
                                     tab.download_worker.stop()
                             except RuntimeError:
-                                print(f"Worker already deleted for {tab.target['session_name']}")
+                                debug_print(f"Worker already deleted for {tab.target['session_name']}")
                             except Exception as e:
-                                print(f"Error stopping worker for {tab.target['session_name']}: {e}")
+                                debug_print(f"Error stopping worker for {tab.target['session_name']}: {e}")
                         
                         # Quit and wait for thread
                         try:
                             tab.download_thread.quit()
                             if not tab.download_thread.wait(2000):  # Wait up to 2 seconds
-                                print(f"Download thread for {tab.target['session_name']} did not stop. Terminating.")
+                                debug_print(f"Download thread for {tab.target['session_name']} did not stop. Terminating.")
                                 tab.download_thread.terminate()
                                 tab.download_thread.wait()
                         except Exception as e:
-                            print(f"Error stopping thread for {tab.target['session_name']}: {e}")
+                            debug_print(f"Error stopping thread for {tab.target['session_name']}: {e}")
             except Exception as e:
-                print(f"Error during cleanup for {tab.target['session_name']}: {e}")
+                debug_print(f"Error during cleanup for {tab.target['session_name']}: {e}")
             finally:
                 # Always clear references
                 tab.download_thread = None
@@ -532,7 +564,7 @@ class SSHManager(QMainWindow):
                             tab.download_thread.quit()
                             tab.download_thread.wait()
                 except Exception as e:
-                    print(f"Error during cleanup for {session_name}: {e}")
+                    debug_print(f"Error during cleanup for {session_name}: {e}")
                 finally:
                     tab.download_thread = None
                     tab.download_worker = None
@@ -555,14 +587,14 @@ class SSHManager(QMainWindow):
         except Exception as e:
             error_msg = f"Failed to start download for {session_name}: {str(e)}"
             self._download_errors.append(error_msg)
-            print(error_msg)
+            debug_print(error_msg)
             QMessageBox.warning(self, "Download Error", error_msg)
 
     def _handle_download_error(self, tab, error_msg):
         """Handle download error with proper logging and user feedback."""
         self._download_errors.append(f"Error in {tab.target['session_name']}: {error_msg}")
         tab.append_output(f"[ERROR] {error_msg}")
-        print(f"Download error for {tab.target['session_name']}: {error_msg}")
+        debug_print(f"Download error for {tab.target['session_name']}: {error_msg}")
 
     def cleanup_cr_executor_tabs(self, widget):
         """Clean up tabs in the specified CR Executor widget."""
@@ -591,7 +623,7 @@ class SSHManager(QMainWindow):
                         tab_to_close.download_thread.quit()
                         tab_to_close.download_thread.wait(2000)
                         if tab_to_close.download_thread.isRunning():
-                            print(f"Download thread for {tab_to_close.target['session_name']} did not stop. Terminating.")
+                            debug_print(f"Download thread for {tab_to_close.target['session_name']} did not stop. Terminating.")
                             tab_to_close.download_thread.terminate()
                             tab_to_close.download_thread.wait()
                         tab_to_close.download_thread = None
@@ -602,7 +634,7 @@ class SSHManager(QMainWindow):
                 if tab_to_close in widget.ssh_tabs:
                     widget.ssh_tabs.remove(tab_to_close)
         else:
-            print(f"Warning: close_ssh_tab called with invalid index {index} or no active widget.")
+            debug_print(f"Warning: close_ssh_tab called with invalid index {index} or no active widget.")
 
 
 if __name__ == "__main__":

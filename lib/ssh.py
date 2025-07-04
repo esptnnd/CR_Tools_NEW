@@ -17,7 +17,7 @@ import time
 import re
 
 # Import the utility function
-from .utils import remove_ansi_escape_sequences
+from .utils import remove_ansi_escape_sequences, debug_print
 
 class InteractiveSSH(QObject):
     output_received = pyqtSignal(str)
@@ -69,7 +69,7 @@ class InteractiveSSH(QObject):
             try:
                 self.shell.send('\n')
             except Exception as e:
-                self._write_log(f"Keepalive failed: {str(e)}")
+                debug_print(f"Keepalive failed: {str(e)}")
 
     def start(self):
         self.keep_reading = True
@@ -93,7 +93,7 @@ class InteractiveSSH(QObject):
                 self.client.get_transport().set_keepalive(30)  # 30 second keepalive
             
             self.shell = self.client.invoke_shell()
-            self._write_log(f"Connected to {self.username}@{self.host} ({self.session_name})")
+            debug_print(f"Connected to {self.username}@{self.host} ({self.session_name})")
 
             # Robustly read and emit the initial prompt/welcome message
             start = time.time()

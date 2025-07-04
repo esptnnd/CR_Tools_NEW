@@ -24,6 +24,7 @@ import os
 import pandas as pd
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from queue import Queue
+from .utils import debug_print
 
 # Import the run_concheck function and SSH related classes/dialogs/workers
 from .concheck import run_concheck
@@ -314,7 +315,7 @@ class SSHTab(QWidget):
 
     # This method seems to be a placeholder, actual handling is in SSHManager
     def handle_upload_request(self, selected_folders, selected_sessions):
-        print("SSHTab received upload request (delegating to manager)")
+        debug_print(f"SSHTab received upload request (delegating to manager)")
 
 
     def perform_sftp_and_remote_commands(self, selected_folders, selected_mode, selected_sessions=None, 
@@ -376,13 +377,13 @@ class SSHTab(QWidget):
 
     def cleanup_upload_thread(self):
         if self.upload_thread and self.upload_thread.isRunning():
-            print(f"Cleaning up upload thread for {self.target['session_name']}...")
+            debug_print(f"Cleaning up upload thread for {self.target['session_name']}...")
             if self.upload_worker:
                  self.upload_worker.stop() # Signal the worker to stop
             self.upload_thread.quit()
             self.upload_thread.wait(2000) # Wait up to 2 seconds
             if self.upload_thread.isRunning():
-                 print(f"Upload thread for {self.target['session_name']} did not stop. Terminating.")
+                 debug_print(f"Upload thread for {self.target['session_name']} did not stop. Terminating.")
                  self.upload_thread.terminate()
                  self.upload_thread.wait() # Wait for termination
 
@@ -670,7 +671,7 @@ class WorkerThread(QThread):
             args_list = [(f, folder_path, self.selected_file) for f in log_files]
 
             # Emit 0% progress at the start
-            print("[DEBUG] WorkerThread: Starting log reading, progress 0%")
+            debug_print(f"WorkerThread: Starting log reading, progress 0%")
             self.phase_changed.emit(f"Reading logs {os.path.basename(folder_path)}...")
             self.details_changed.emit("")
             self.overall_progress.emit(0)
@@ -723,7 +724,7 @@ class WorkerThread(QThread):
             err_msg = f"Error: {str(e)}\n{traceback.format_exc()}"
             self.phase_changed.emit("Error!")
             self.details_changed.emit(err_msg)
-            print(err_msg)
+            debug_print(err_msg)
             self.finished.emit(self.file_path, [], self.selected_file, self.output_dir)
 
 class CMBulkFileMergeWidget(QWidget):

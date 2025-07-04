@@ -21,7 +21,7 @@ import time
 import random
 
 # Import utility functions and worker classes
-from .utils import remove_ansi_escape_sequences # May not be directly used here, but good to keep relevant imports.
+from .utils import remove_ansi_escape_sequences, debug_print # May not be directly used here, but good to keep relevant imports.
 from .workers import SubfolderLoaderWorker, DownloadLogWorker # Import workers used by these dialogs
 
 
@@ -240,6 +240,7 @@ class UploadCRDialog(QDialog):
         self.upload_button.clicked.connect(self.initiate_upload)
 
         print(f'[PROFILE] UploadCRDialog __init__ end, elapsed: {time.time() - t0:.3f}s')
+        debug_print(f'[PROFILE] UploadCRDialog __init__ end, elapsed: {time.time() - t0:.3f}s')
 
     def browse_parent_folder(self):
         # Use QFileDialog to select a single parent directory

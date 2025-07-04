@@ -17,6 +17,7 @@ from PyQt5.QtWidgets import QApplication, QProgressDialog, QMessageBox # Needed 
 from PyQt5.QtCore import QTimer
 import openpyxl
 from openpyxl.styles import PatternFill
+from .utils import debug_print
 
 
 def check_logs_and_export_to_excel(parent=None, log_check_mode="Normal Log Checking"):
@@ -64,7 +65,7 @@ def check_logs_and_export_to_excel(parent=None, log_check_mode="Normal Log Check
                     progress.setValue(1)
                     progress.close()
             except Exception as e:
-                print(f"Error loading BEFORE.xlsx: {e}")
+                debug_print(f"Error loading BEFORE.xlsx: {e}")
                 if progress is not None:
                     progress.close()
                 QMessageBox.warning(parent, "Warning", f"Could not load BEFORE.xlsx: {e}")
@@ -89,11 +90,11 @@ def check_logs_and_export_to_excel(parent=None, log_check_mode="Normal Log Check
                 if zf.namelist(): # Check if namelist is NOT empty
                     loop_zip_ok_file.append(zip_path)
                 else:
-                    print(f"[INFO] Skipping empty zip file: {fname}")
+                    debug_print(f"[INFO] Skipping empty zip file: {fname}")
         except zipfile.BadZipFile:
-            print(f"Skipping bad zip file: {fname}")
+            debug_print(f"Skipping bad zip file: {fname}")
         except Exception as e:
-            print(f"Error processing zip file {fname} during check: {e}")
+            debug_print(f"Error processing zip file {fname} during check: {e}")
 
         if progress is not None:
             progress.setValue(idx + 1)
@@ -171,7 +172,7 @@ def check_logs_and_export_to_excel(parent=None, log_check_mode="Normal Log Check
                                     # Added 'rb' mode for reading binary, and decode
                                     lines = [line.decode(errors='ignore').strip() for line in f.readlines()]
                                 except Exception as read_err:
-                                     print(f"Error reading {member} in {fname}: {read_err}")
+                                     debug_print(f"Error reading {member} in {fname}: {read_err}")
                                      lines = [] # Assign empty list on error
 
                             error1 = any('Checking ip contact...Not OK' in line for line in lines)
@@ -233,7 +234,7 @@ def check_logs_and_export_to_excel(parent=None, log_check_mode="Normal Log Check
                                                     'AdditionalText': parts[6]
                                                 })
                                         except Exception as alarm_err:
-                                            print(f"Error processing alarm line in {member}: {alarm_err}")
+                                            debug_print(f"Error processing alarm line in {member}: {alarm_err}")
 
                                     # Process data for each active section
                                     for item in item_check_list:
@@ -266,16 +267,16 @@ def check_logs_and_export_to_excel(parent=None, log_check_mode="Normal Log Check
                                                 item['result_list'].append(data_entry)
                                                 
                                             except Exception as data_err:
-                                                print(f"Error processing {item['name']} line in {member}: {data_err}")
+                                                debug_print(f"Error processing {item['name']} line in {member}: {data_err}")
 
                         except Exception as open_err:
-                            print(f"Error opening {member} in {fname}: {open_err}")
+                            debug_print(f"Error opening {member} in {fname}: {open_err}")
         except zipfile.BadZipFile:
             # This should ideally not happen if we checked in the first loop,
             # but keeping for robustness.
-            print(f"Skipping bad zip file during processing: {fname}")
+            debug_print(f"Skipping bad zip file during processing: {fname}")
         except Exception as e:
-            print(f"Error processing zip file {fname}: {e}")
+            debug_print(f"Error processing zip file {fname}: {e}")
 
         if progress is not None:
             progress.setValue(idx + 1)
@@ -299,7 +300,7 @@ def check_logs_and_export_to_excel(parent=None, log_check_mode="Normal Log Check
             if result_alarm_check:
                 df_alarm = pd.DataFrame(result_alarm_check)
                 if not df_alarm.empty:
-                    print("SKIP EXPORT")
+                    debug_print("SKIP EXPORT")
                     df_alarm.to_excel(writer, sheet_name='ALARM', index=False)
                 
                 # Compare with before data if available
@@ -381,22 +382,22 @@ def check_logs_and_export_to_excel(parent=None, log_check_mode="Normal Log Check
                                         for cell in worksheet[idx]:
                                             cell.fill = yellow_fill
                                 
-                                print("Successfully highlighted NEW Alarm rows")
+                                debug_print("Successfully highlighted NEW Alarm rows")
                             except Exception as e:
-                                print(f"Warning: Could not highlight cells: {str(e)}")
+                                debug_print(f"Warning: Could not highlight cells: {str(e)}")
                                 import traceback
-                                print(traceback.format_exc())
+                                debug_print(traceback.format_exc())
                             
                             # Export the before data
                             ##df_alarm_before.to_excel(writer, sheet_name='ALARM_BEFORE', index=False)
                         else:
-                            print("Warning: Required columns missing for alarm comparison")
-                            print(f"Available columns in df_alarm: {df_alarm.columns.tolist()}")
-                            print(f"Available columns in df_alarm_before: {df_alarm_before.columns.tolist()}")
+                            debug_print("Warning: Required columns missing for alarm comparison")
+                            debug_print(f"Available columns in df_alarm: {df_alarm.columns.tolist()}")
+                            debug_print(f"Available columns in df_alarm_before: {df_alarm_before.columns.tolist()}")
                     except Exception as e:
-                        print(f"Error during alarm comparison: {str(e)}")
+                        debug_print(f"Error during alarm comparison: {str(e)}")
                         import traceback
-                        print(traceback.format_exc())
+                        debug_print(traceback.format_exc())
             
             # Export data for each check pattern if available
             for item in item_check_list:
@@ -454,7 +455,7 @@ def check_logs_and_export_to_excel(parent=None, log_check_mode="Normal Log Check
                         # Print information about removed duplicates
                         removed_count = len(df_3GMOCN_cell_activity) - len(df_merged)
                         if removed_count > 0:
-                            print(f"Removed {removed_count} duplicate entries from LTE_data")
+                            debug_print(f"Removed {removed_count} duplicate entries from LTE_data")
                         
                         # Export merged data to 3G_MOCN_CELL_LTE sheet
                         df_merged.to_excel(writer, sheet_name='3G_MOCN_CELL_LTE', index=False)
@@ -572,12 +573,12 @@ def check_logs_and_export_to_excel(parent=None, log_check_mode="Normal Log Check
                     worksheet.column_dimensions[column_letter].width = adjusted_width
 
     except Exception as e:
-        print(f"Error writing to Excel file: {str(e)}")
+        debug_print(f"Error writing to Excel file: {str(e)}")
         import traceback
-        print(traceback.format_exc())
+        debug_print(traceback.format_exc())
         raise
 
-    print(f"Exported check results to {out_path}")
+    debug_print(f"Exported check results to {out_path}")
     # Sort sheets: Connection_Check, 3G_MOCN_CELL_LTE, Cell_Status first (if they exist), then the rest
     try:
         import openpyxl
@@ -593,7 +594,7 @@ def check_logs_and_export_to_excel(parent=None, log_check_mode="Normal Log Check
                 wb._sheets.insert(0, wb._sheets.pop(idx))
         wb.save(out_path)
     except Exception as e:
-        print(f"Could not reorder sheets or set tab color: {e}")
+        debug_print(f"Could not reorder sheets or set tab color: {e}")
 
     # Display a success message box after export
     if QApplication.instance() is not None:
@@ -612,7 +613,7 @@ def check_logs_and_export_to_excel(parent=None, log_check_mode="Normal Log Check
                 else:  # Linux/Mac
                     subprocess.run(['xdg-open', out_path])
             except Exception as e:
-                print(f"Error opening Excel file: {e}")
+                debug_print(f"Error opening Excel file: {e}")
             
         # Connect the finished signal to open the Excel file
         msg_box.finished.connect(open_excel_file)

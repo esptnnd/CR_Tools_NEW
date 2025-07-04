@@ -16,6 +16,7 @@ from lib.style import TransparentTextEdit, StyledPushButton, StyledLineEdit, Sty
 from lib.ssh import InteractiveSSH
 from lib.dialogs import ScreenSelectionDialog
 from lib.workers import UploadWorker
+from .utils import debug_print
 
 class SSHTab(QWidget):
     def __init__(self, target, ssh_manager):
@@ -275,13 +276,13 @@ class SSHTab(QWidget):
     def cleanup_upload_thread(self):
         """Clean up upload worker and thread"""
         if self.upload_thread and self.upload_thread.isRunning():
-            print(f"Cleaning up upload thread for {self.target['session_name']}...")
+            debug_print(f"Cleaning up upload thread for {self.target['session_name']}...")
             if self.upload_worker:
                 self.upload_worker.stop()
             self.upload_thread.quit()
             self.upload_thread.wait(2000)
             if self.upload_thread.isRunning():
-                print(f"Upload thread for {self.target['session_name']} did not stop. Terminating.")
+                debug_print(f"Upload thread for {self.target['session_name']} did not stop. Terminating.")
                 self.upload_thread.terminate()
                 self.upload_thread.wait()
 

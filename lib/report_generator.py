@@ -37,6 +37,7 @@ import re
 import time
 import mmap
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from .utils import debug_print
 
 # Move this function to top-level so it can be pickled by multiprocessing
 def process_single_log(args):
@@ -149,9 +150,9 @@ def process_single_log(args):
 
 
     except Exception as e:
-        print(f"Error processing {filename}: {e}")
+        debug_print(f"Error processing {filename}: {e}")
     end_time = time.time()
-    print(f"Processed {filename} in {end_time - start_time:.2f}s")
+    debug_print(f"Processed {filename} in {end_time - start_time:.2f}s")
 
     # --- New Section: Parse LOG_Alarm_bf, LOG_status_bf, LOG_Alarm_af, LOG_status_af ---
     from io import StringIO
@@ -388,18 +389,18 @@ class ExcelReaderApp(QMainWindow):
 
 
     def update_overall_progress(self, value):
-        print(f"[DEBUG] Progress bar update: {value}")
+        debug_print(f"[DEBUG] Progress bar update: {value}")
         self.progress_bar.setValue(value)
 
     def on_thread_finished(self, file_path, log_data , selected_file , output_dir):
         report_file = f"{output_dir}\{selected_file}.xlsx"
-        print("[DEBUG] About to start ExcelWriterThread")
+        debug_print("[DEBUG] About to start ExcelWriterThread")
         self.writer_thread = ExcelWriterThread(log_data, report_file, selected_file)
         self.writer_thread.progress_changed.connect(self.update_overall_progress)
         self.writer_thread.phase_changed.connect(self.update_phase_label)
         self.writer_thread.details_changed.connect(self.update_details_label)
         def on_file_written(_):
-            print(f"Your Report Available On :\n{report_file}\n\n")
+            debug_print(f"Your Report Available On :\n{report_file}\n\n")
             self.append_log_data.extend(log_data)
             # Check if all files are processed
             if self.file_queue.empty():
@@ -517,7 +518,7 @@ class ExcelReaderApp(QMainWindow):
                 self.worker_thread.finished.connect(self.process_next_file)
                 self.worker_thread.start()
             except Exception as e:
-                print(f"Error reading Excel file: {e}")
+                debug_print(f"Error reading Excel file: {e}")
                 self.show_error_message(f"Error reading Excel file: {e}")
         #####else:
         #####    self.processing_finished.emit()  # Signal that all files are processed
@@ -885,17 +886,17 @@ class ExcelWriterThread(QThread):
 
     def run(self):
         try:
-            print("[DEBUG] ExcelWriterThread started, setting progress to 0")
+            debug_print("[DEBUG] ExcelWriterThread started, setting progress to 0")
             self.progress_changed.emit(0)
             # Use the shared write_logs_to_excel function with a progress callback
             from .report_generator import write_logs_to_excel
             def debug_progress(val):
-                print(f"[DEBUG] ExcelWriterThread progress: {val}")
+                debug_print(f"[DEBUG] ExcelWriterThread progress: {val}")
                 self.progress_changed.emit(val)
             write_logs_to_excel(self.log_data, self.excel_filename, self.selected_file, progress_callback=debug_progress)
             self.progress_changed.emit(100)
             self.finished.emit(self.excel_filename)
         except Exception as e:
             import traceback
-            print(traceback.format_exc())
+            debug_print(traceback.format_exc())
             self.finished.emit("")
