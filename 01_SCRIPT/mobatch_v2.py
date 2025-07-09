@@ -10,15 +10,22 @@ import time
 ps1 = os.environ.get("PS1", "")
 matches = re.findall(r'\((.*?)\)', ps1)
 
+# Define the mapping
+vm_mapping = {
+    "ENM1A": "svc",
+    "ENM2A": "svc",
+    "ENM3A": "svc",
+    "ENM4A": "svc",
+    "ENM5A": "svc",
+    "ENM7A": "scp",
+}
+
+
+# Default to "scp" if not in the mapping
 vm_scp = "sff"
 if matches:
     extracted_value = matches[0]
-    if extracted_value == "ENM2A":
-        vm_scp = "svc"
-    elif extracted_value == "enmwst":
-        vm_scp = "scp"
-    else:
-        vm_scp = "svc"
+    vm_scp = vm_mapping.get(extracted_value, "scp")
 
 # Input arguments
 ref_file = sys.argv[1]

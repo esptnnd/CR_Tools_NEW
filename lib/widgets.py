@@ -330,6 +330,18 @@ class SSHTab(QWidget):
         # Store the mobatch execution mode
         self.mobatch_execution_mode = mobatch_execution_mode
         
+        # Store last upload parameters for retry functionality
+        self._last_upload_params = {
+            'selected_folders': selected_folders,
+            'selected_mode': selected_mode,
+            'selected_sessions': selected_sessions,
+            'mobatch_paralel': mobatch_paralel,
+            'mobatch_timeout': mobatch_timeout,
+            'assigned_nodes': assigned_nodes,
+            'mobatch_execution_mode': mobatch_execution_mode,
+            'collect_prepost_checked': collect_prepost_checked
+        }
+        
         self.cleanup_upload_thread()
         self._setup_upload_worker(selected_folders, selected_mode, selected_sessions,
                                 mobatch_paralel, mobatch_timeout, assigned_nodes,
@@ -445,36 +457,24 @@ class SSHTab(QWidget):
                     self._history_index = len(self._command_history)
 
     def retry_upload(self):
-        # This method needs to know the last successful upload parameters.
-        # This requires storing the parameters when perform_sftp_and_remote_commands is called.
-        # For simplicity now, I'll just show the structure assuming parameters are available.
-        self.append_output("[RETRY] Functionality not fully implemented yet. Requires storing last upload parameters.")
-        return # Prevent execution for now
+        # Retry the last upload using stored parameters
+        if not hasattr(self, '_last_upload_params') or not self._last_upload_params:
+            self.append_output("[RETRY] No previous upload parameters found.")
+            QMessageBox.warning(self, "Retry Upload", "No previous upload parameters found.")
+            return
 
-        # Example structure if parameters were stored:
-        # if not hasattr(self, '_last_upload_params') or not self._last_upload_params:
-        #     self.append_output("[RETRY] No previous upload parameters found.")
-        #     return
-        #
-        # # Retrieve stored parameters
-        # selected_folders = self._last_upload_params['selected_folders']
-        # selected_mode = self._last_upload_params['selected_mode']
-        # selected_sessions = self._last_upload_params.get('selected_sessions')
-        # mobatch_paralel = self._last_upload_params.get('mobatch_paralel', 70)
-        # mobatch_timeout = self._last_upload_params.get('mobatch_timeout', 30)
-        # assigned_nodes = self._last_upload_params.get('assigned_nodes')
-        # mobatch_execution_mode = self._last_upload_params.get('mobatch_execution_mode', "REGULAR_MOBATCH")
-        #
-        # self.append_output(f"[RETRY] Retrying upload for {self.target['session_name']}...")
-        # self.perform_sftp_and_remote_commands(
-        #     selected_folders,
-        #     selected_mode,
-        #     selected_sessions=selected_sessions,
-        #     mobatch_paralel=mobatch_paralel,
-        #     mobatch_timeout=mobatch_timeout,
-        #     assigned_nodes=assigned_nodes,
-        #     mobatch_execution_mode=mobatch_execution_mode
-        # )
+        params = self._last_upload_params
+        self.append_output(f"[RETRY] Retrying upload for {self.target['session_name']}...")
+        self.perform_sftp_and_remote_commands(
+            params['selected_folders'],
+            params['selected_mode'],
+            selected_sessions=params.get('selected_sessions'),
+            mobatch_paralel=params.get('mobatch_paralel', 70),
+            mobatch_timeout=params.get('mobatch_timeout', 30),
+            assigned_nodes=params.get('assigned_nodes'),
+            mobatch_execution_mode=params.get('mobatch_execution_mode', "REGULAR_MOBATCH"),
+            collect_prepost_checked=params.get('collect_prepost_checked', False)
+        )
 
 class CRExecutorWidget(QWidget):
     def __init__(self, targets, ssh_manager, parent=None, session_type="TRUE"):

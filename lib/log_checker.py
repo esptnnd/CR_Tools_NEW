@@ -403,7 +403,8 @@ def check_logs_and_export_to_excel(parent=None, log_check_mode="Normal Log Check
             for item in item_check_list:
                 if item['result_list']:
                     df_data = pd.DataFrame(item['result_list'])
-                    ##df_data.to_excel(writer, sheet_name=item['sheet_name'], index=False)
+                    if log_check_mode == "collect data Hygiene":
+                        df_data.to_excel(writer, sheet_name=item['sheet_name'], index=False)
                     ##Cell_Status
                     if item['sheet_name'] == 'Cell_Status':
                         column_order = ['NODENAME','MO',                      

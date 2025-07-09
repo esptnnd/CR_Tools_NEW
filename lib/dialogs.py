@@ -384,6 +384,7 @@ class DownloadLogDialog(QDialog):
         self.log_check_mode_combo = QComboBox()
         self.log_check_mode_combo.addItems([
             "Normal Log Checking",
+            "collect data Hygiene",
             "Normal Compare Before Checking",
             "3G_MOCN_CELL_LTE_Checking",
             "RNC_Rehoming_Checking"
