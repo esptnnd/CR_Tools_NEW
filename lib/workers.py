@@ -452,7 +452,7 @@ class DownloadLogWorker(QObject):
         host = self.target['host']
         port = self.target['port']
         password = self.target['password']
-        remote_zip = f"/home/shared/{username}/00_download.zip"
+        remote_zip = f"/home/shared/{username}/00_{self.var_FOLDER_CR}_download.zip"
         local_dir = "02_DOWNLOAD"
         os.makedirs(local_dir, exist_ok=True)
         local_zip = os.path.join(local_dir, f"{self.target['session_name']}_download.zip")

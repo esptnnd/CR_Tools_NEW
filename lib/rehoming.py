@@ -184,6 +184,7 @@ def process_cmbulk_export(folder_path, data_groups, df_ref, df_cell, df_IUB, df_
     template_REFERENCE = """FDN : {FDN}\n"""
     template_DELETE = """delete\nFDN : {FDN}\n"""
     template_DELETE_CELL_SAC = """delete\nFDN : {FDN}\ndelete\nFDN : {serviceAreaRef_OLD}\n"""
+    template_DELETE_IUB_NodeSynch = """delete\nFDN : {FDN},NodeSynch=1\ndelete\nFDN : {FDN}\n"""
     template_LOCK = """set\nFDN : {FDN}\nadministrativeState : {administrativeState}\n"""
     ##template_LOCK = """set\nFDN : {FDN}\nanrEutranUtranCellConfig : {{anrEnabled=FALSE}} \n"""
     ##anrEutranUtranCellConfig
@@ -408,6 +409,8 @@ def process_cmbulk_export(folder_path, data_groups, df_ref, df_cell, df_IUB, df_
         for _, row in tqdm(df.iterrows(), total=len(df), desc=type_str):
             if type_str == "UtranCell":
                 write_output(template_DELETE_CELL_SAC, row, "04_DELETE_CELL", filename_by='source', replace_fdn=False)
+            elif type_str == "IubLink":
+                write_output(template_DELETE_IUB_NodeSynch, row, "04_DELETE_CELL", filename_by='source', replace_fdn=False)
             else:    
                 write_output(template_DELETE, row, "04_DELETE_CELL", filename_by='source', replace_fdn=False)
         total_rows = len(df)
