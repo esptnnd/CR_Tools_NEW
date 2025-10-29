@@ -29,7 +29,7 @@ from .utils import debug_print
 # Import the run_concheck function and SSH related classes/dialogs/workers
 from .concheck import run_concheck
 from .ssh import InteractiveSSH # Assuming InteractiveSSH is needed by SSHTab
-from .dialogs import ScreenSelectionDialog, MultiConnectDialog, UploadCRDialog, DownloadLogDialog # Import dialogs used by these widgets
+from .dialogs import ScreenSelectionDialog, MultiConnectDialog, UploadCRDialog, DownloadLogDialog, DuplicateSessionDialog # Import dialogs used by these widgets
 from .workers import UploadWorker, SubfolderLoaderWorker, DownloadLogWorker # Import workers used by these widgets
 from .style import StyledTabWidget, TransparentTextEdit, StyledPushButton, StyledLineEdit, StyledProgressBar, TopButton, StyledListWidget, StyledContainer, setup_window_style, update_window_style
 from .report_generator import process_single_log, write_logs_to_excel, ExcelWriterThread
@@ -352,9 +352,12 @@ class SSHTab(QWidget):
                            mobatch_execution_mode, collect_prepost_checked):
         """Setup the upload worker with the given parameters"""
         self.upload_thread = QThread()
+        current_widget = self.ssh_manager.get_current_cr_executor_widget()
+        if not current_widget:
+            self.append_output("[ERROR] Could not find the current CR Executor widget.")
+            return
         # Pass necessary parameters to the UploadWorker, including var_FOLDER_CR from ssh_manager
         self.upload_worker = UploadWorker(
-            ssh_client=self.ssh.client,
             target_info=self.target,
             selected_folders=selected_folders,
             mode=selected_mode,
@@ -363,8 +366,9 @@ class SSHTab(QWidget):
             mobatch_timeout=mobatch_timeout,
             assigned_nodes=assigned_nodes,
             mobatch_execution_mode=mobatch_execution_mode,
-            var_FOLDER_CR=self.ssh_manager.var_FOLDER_CR,
-            collect_prepost_checked=collect_prepost_checked
+            var_FOLDER_CR=current_widget.var_FOLDER_CR,
+            collect_prepost_checked=collect_prepost_checked,
+            password_sesion=self.target.get('password', '')
         )
         self.upload_worker.moveToThread(self.upload_thread)
 
@@ -417,22 +421,42 @@ class SSHTab(QWidget):
         else:
             # On success, populate the batch run textarea with cd and ls commands
             # Use var_FOLDER_CR and var_SCREEN_CR from ssh_manager
-            remote_base_dir = f"/home/shared/{self.target['username']}/{self.ssh_manager.var_FOLDER_CR}"
+            current_widget = self.ssh_manager.get_current_cr_executor_widget()
+            if not current_widget:
+                self.append_output("[ERROR] Could not find the current CR Executor widget.")
+                return
+
+            remote_base_dir = f"/home/shared/{self.target['username']}/{current_widget.var_FOLDER_CR}"
             ENM_SERVER = self.target['session_name']
             
             # Use appropriate command format based on mobatch execution mode
-            if hasattr(self, 'mobatch_execution_mode') and self.mobatch_execution_mode == "CMBULK IMPORT":
-                command_format = self.ssh_manager.CMD_BATCH_SEND_FORMAT_CMBULK
+            if hasattr(self, 'mobatch_execution_mode'):
+                if self.mobatch_execution_mode == "CMBULK IMPORT":
+                    command_format = self.ssh_manager.CMD_BATCH_SEND_FORMAT_CMBULK
+                elif self.mobatch_execution_mode == "SEND_BASH_COMMAND" and hasattr(self, 'custom_cmd_format') and self.custom_cmd_format:
+                    command_format = self.custom_cmd_format
+                else:
+                    command_format = self.ssh_manager.CMD_BATCH_SEND_FORMAT
             else:
                 command_format = self.ssh_manager.CMD_BATCH_SEND_FORMAT
                 
-            self.command_batch_RUN.setPlainText(
-                command_format.format(
-                    remote_base_dir=remote_base_dir,
-                    ENM_SERVER=ENM_SERVER,
-                    screen_session=self.ssh_manager.var_SCREEN_CR
-                )
-            )
+            # Create a dictionary with all possible format variables
+            format_vars = {
+                'remote_base_dir': remote_base_dir,
+                'ENM_SERVER': ENM_SERVER,
+                'screen_session': current_widget.var_SCREEN_CR,
+                'password_sesion': self.target.get('password', '')
+            }
+            
+            try:
+                # Try to format the command using the dictionary
+                formatted_command = command_format.format(**format_vars)
+                self.command_batch_RUN.setPlainText(formatted_command)
+            except Exception as e:
+                # If formatting fails, use a default command format
+                self.append_output(f"[WARNING] Command format error: {str(e)}")
+                default_format = "cd {remote_base_dir}\nls -ltrh"
+                self.command_batch_RUN.setPlainText(default_format.format(**format_vars))
             # Automatically send the batch commands
             self.send_batch_commands()
         # No need to clean up worker/thread here; handled by cleanup_upload_thread
@@ -477,11 +501,13 @@ class SSHTab(QWidget):
         )
 
 class CRExecutorWidget(QWidget):
-    def __init__(self, targets, ssh_manager, parent=None, session_type="TRUE"):
+    def __init__(self, targets, ssh_manager, parent=None, session_type="TRUE", var_FOLDER_CR=None, var_SCREEN_CR=None):
         super().__init__(parent)
         self.ssh_manager = ssh_manager # Keep reference to the manager
         self.targets = targets  # Store targets
         self.session_type = session_type # Store the type (TRUE or DTAC)
+        self.var_FOLDER_CR = var_FOLDER_CR
+        self.var_SCREEN_CR = var_SCREEN_CR
 
         main_layout = QVBoxLayout(self)
 
@@ -490,9 +516,11 @@ class CRExecutorWidget(QWidget):
         self.connect_selected_button = TopButton("Connect Selected Sessions")
         self.download_log_button = TopButton("Download LOG")
         self.upload_cr_button = TopButton("UPLOAD CR")
+        self.duplicate_session_button = TopButton("Duplicate Session")
         top_button_layout.addWidget(self.connect_selected_button)
         top_button_layout.addWidget(self.download_log_button)
         top_button_layout.addWidget(self.upload_cr_button)
+        top_button_layout.addWidget(self.duplicate_session_button)
         top_button_layout.addStretch() # Push buttons to the left
 
         # Add the top button layout to the main layout
@@ -518,6 +546,10 @@ class CRExecutorWidget(QWidget):
         self.connect_selected_button.clicked.connect(lambda: self.ssh_manager.open_multi_connect_dialog(self.targets))
         self.download_log_button.clicked.connect(lambda: self.ssh_manager.open_download_log_dialog(self.targets)) # Pass targets
         self.upload_cr_button.clicked.connect(lambda: self.ssh_manager.open_upload_cr_dialog(self.targets)) # Pass targets
+        self.duplicate_session_button.clicked.connect(self.duplicate_session_group)
+
+    def duplicate_session_group(self):
+        self.ssh_manager.duplicate_session_group()
 
 class ExcelReaderApp(QMainWindow):
     processing_finished = pyqtSignal()

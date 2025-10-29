@@ -10,9 +10,9 @@
 # Dialog classes
 
 from PyQt5.QtWidgets import (
-    QDialog, QVBoxLayout, QListWidget, QPushButton, QHBoxLayout, QMessageBox,
-    QLineEdit, QLabel, QComboBox, QButtonGroup, QRadioButton, QFileDialog, QProgressDialog,
-    QDialogButtonBox, QCheckBox
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QListWidget, QDialogButtonBox, QFileDialog, QLineEdit,
+    QMessageBox, QCheckBox, QComboBox, QTextEdit
 )
 from PyQt5.QtCore import QEventLoop, QTimer, QObject, pyqtSignal, QThread, Qt
 import re
@@ -142,7 +142,7 @@ class ScreenSelectionDialog(QDialog):
 
 
 class UploadCRDialog(QDialog):
-    upload_requested = pyqtSignal(list, list, str, int, int, str, str, list, bool)
+    upload_requested = pyqtSignal(list, list, str, int, int, str, str, list, bool, object)
 
     def __init__(self, ssh_targets, parent=None, ssh_manager=None, start_path=None):
         print('[PROFILE] UploadCRDialog __init__ start')
@@ -196,10 +196,25 @@ class UploadCRDialog(QDialog):
             "PYTHON_MOBATCH",
             "REGULAR_MOBATCH",
             "REGULAR_MOBATCH_nodelete",
-            "CMBULK IMPORT"
+            "CMBULK IMPORT",
+            "SEND_BASH_COMMAND"
         ])
         self.mobatch_mode_combo.setCurrentText("REGULAR_MOBATCH")
         layout.addWidget(self.mobatch_mode_combo)
+        
+        # Add textarea for customizing CMD_BATCH_SEND_FORMAT when SEND_BASH_COMMAND is selected
+        self.cmd_format_label = QLabel("Customize Command Format:")
+        self.cmd_format_label.setVisible(False)
+        layout.addWidget(self.cmd_format_label)
+        
+        self.cmd_format_textarea = QTextEdit()
+        self.cmd_format_textarea.setPlaceholderText("Enter custom command format. Available variables: {remote_base_dir}, {screen_session}, {ENM_SERVER}, {password_sesion}")
+        self.cmd_format_textarea.setText("cd {remote_base_dir}\nls -ltrh\npkill -f \"SCREEN.*{screen_session}\"\nscreen -S {screen_session}\nwait 5\necho EXECUTE\nbash RUN_CR_{ENM_SERVER}.txt\n")
+        self.cmd_format_textarea.setVisible(False)
+        layout.addWidget(self.cmd_format_textarea)
+        
+        # Connect the combo box change event to show/hide the textarea
+        self.mobatch_mode_combo.currentTextChanged.connect(self.on_mobatch_mode_changed)
 
         # 2.6. Add mobatch parameters
         mobatch_layout = QHBoxLayout()
@@ -279,6 +294,15 @@ class UploadCRDialog(QDialog):
             for item_name in subfolders:
                 self.subfolder_list_widget.addItem(item_name)
         self.subfolder_list_widget.setEnabled(True)
+        
+    def on_mobatch_mode_changed(self, text):
+        # Show/hide the command format textarea based on the selected mode
+        if text == "SEND_BASH_COMMAND":
+            self.cmd_format_label.setVisible(True)
+            self.cmd_format_textarea.setVisible(True)
+        else:
+            self.cmd_format_label.setVisible(False)
+            self.cmd_format_textarea.setVisible(False)
 
     def initiate_upload(self):
         selected_sessions = [item.text() for item in self.session_list_widget.selectedItems()]
@@ -318,9 +342,14 @@ class UploadCRDialog(QDialog):
 
         # Get collect pre-post state
         collect_prepost_checked = self.collect_prepost_checkbox.isChecked()
-
+        
+        # Get custom command format if SEND_BASH_COMMAND is selected
+        custom_cmd_format = None
+        if mobatch_execution_mode == "SEND_BASH_COMMAND":
+            custom_cmd_format = self.cmd_format_textarea.toPlainText()
+        
         # Emit the signal with the full paths of selected subfolders and sessions
-        self.upload_requested.emit(selected_folders_full_paths, selected_sessions, selected_mode, mobatch_paralel, mobatch_timeout, mobatch_execution_mode, mobatch_extra_argument, self.ssh_targets, collect_prepost_checked)
+        self.upload_requested.emit(selected_folders_full_paths, selected_sessions, selected_mode, mobatch_paralel, mobatch_timeout, mobatch_execution_mode, mobatch_extra_argument, self.ssh_targets, collect_prepost_checked, custom_cmd_format)
 
         self.accept() # Close the dialog after emitting the signal
 
@@ -417,3 +446,38 @@ class DownloadLogDialog(QDialog):
         # Emit the signal with log_check_mode parameter
         self.download_requested.emit(selected_sessions, download_path, log_check_mode)
         self.accept()
+
+class DuplicateSessionDialog(QDialog):
+    def __init__(self, parent=None, folder_cr=None, screen_cr=None):
+        super().__init__(parent)
+        self.setWindowTitle("Duplicate Session")
+        self.setMinimumSize(400, 150)
+
+        layout = QVBoxLayout()
+
+        # Folder CR
+        folder_layout = QHBoxLayout()
+        folder_label = QLabel("Folder CR:")
+        self.folder_input = QLineEdit(folder_cr)
+        folder_layout.addWidget(folder_label)
+        folder_layout.addWidget(self.folder_input)
+        layout.addLayout(folder_layout)
+
+        # Screen CR
+        screen_layout = QHBoxLayout()
+        screen_label = QLabel("Screen CR:")
+        self.screen_input = QLineEdit(screen_cr)
+        screen_layout.addWidget(screen_label)
+        screen_layout.addWidget(self.screen_input)
+        layout.addLayout(screen_layout)
+
+        # Buttons
+        self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.button_box.accepted.connect(self.accept)
+        self.button_box.rejected.connect(self.reject)
+        layout.addWidget(self.button_box)
+
+        self.setLayout(layout)
+
+    def get_values(self):
+        return self.folder_input.text(), self.screen_input.text()

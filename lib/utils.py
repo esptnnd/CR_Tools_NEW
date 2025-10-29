@@ -23,5 +23,47 @@ def get_debug_mode():
     return get_debug_mode._cached
 
 def debug_print(*args, **kwargs):
+
     if get_debug_mode() == 'DEBUG':
+
         print(*args, **kwargs) 
+
+
+
+def duplicate_session(session_name, existing_sessions):
+
+    """
+
+    Generates a unique session name for a duplicated session.
+
+
+
+    Args:
+
+        session_name (str): The name of the session to duplicate.
+
+        existing_sessions (list): A list of existing session names.
+
+
+
+    Returns:
+
+        str: A unique name for the duplicated session.
+
+    """
+
+    base_name = session_name
+
+    clone_num = 1
+
+    while True:
+
+        new_name = f"{base_name} CLONE {clone_num}"
+
+        if new_name not in existing_sessions:
+
+            return new_name
+
+        clone_num += 1
+
+ 

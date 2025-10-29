@@ -561,11 +561,12 @@ def select_dump_and_excel(parent, log_callback=None, start_path=None):
         return None, None
     if log_callback:
         log_callback(f"\ud83d\udcc1 Folder dump: {folder_path}")
-    file_path, _ = QFileDialog.getOpenFileName(parent, "Pilih DATA_CELL.xlsx", folder_path, "Excel Files (*.xlsx)")
-    if not file_path:
+    file_path_tuple = QFileDialog.getOpenFileName(parent, "Pilih DATA_CELL.xlsx", folder_path, "Excel Files (*.xlsx)")
+    if not file_path_tuple or not file_path_tuple[0]:
         if log_callback:
             log_callback("\u274c DATA_CELL.xlsx tidak dipilih.")
         return None, None
+    file_path = file_path_tuple[0]
     if log_callback:
         log_callback(f"\ud83d\udcc4 DATA_CELL.xlsx: {file_path}")
     try:

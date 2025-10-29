@@ -225,7 +225,7 @@ class SSHTab(QWidget):
 
     def perform_sftp_and_remote_commands(self, selected_folders, selected_mode, selected_sessions=None, 
                                        mobatch_paralel=70, mobatch_timeout=30, assigned_nodes=None, 
-                                       mobatch_execution_mode="REGULAR_MOBATCH"):
+                                       mobatch_execution_mode="REGULAR_MOBATCH", collect_prepost_checked=False):
         """Handle SFTP upload and remote commands"""
         self.append_output(f"SSHTab {self.target['session_name']} performing SFTP and remote commands.")
         self.append_output("Preparing for SFTP upload and remote commands...")
@@ -235,15 +235,14 @@ class SSHTab(QWidget):
         self.cleanup_upload_thread()
         self._setup_upload_worker(selected_folders, selected_mode, selected_sessions,
                                 mobatch_paralel, mobatch_timeout, assigned_nodes,
-                                mobatch_execution_mode)
+                                mobatch_execution_mode, collect_prepost_checked)
 
     def _setup_upload_worker(self, selected_folders, selected_mode, selected_sessions,
                            mobatch_paralel, mobatch_timeout, assigned_nodes,
-                           mobatch_execution_mode):
+                           mobatch_execution_mode, collect_prepost_checked=False):
         """Setup and start upload worker"""
         self.upload_thread = QThread()
         self.upload_worker = UploadWorker(
-            ssh_client=self.ssh.client,
             target_info=self.target,
             selected_folders=selected_folders,
             mode=selected_mode,
@@ -252,7 +251,9 @@ class SSHTab(QWidget):
             mobatch_timeout=mobatch_timeout,
             assigned_nodes=assigned_nodes,
             mobatch_execution_mode=mobatch_execution_mode,
-            var_FOLDER_CR=self.ssh_manager.var_FOLDER_CR
+            var_FOLDER_CR=self.ssh_manager.var_FOLDER_CR,
+            collect_prepost_checked=collect_prepost_checked,
+            password_sesion=self.target.get('password', '')
         )
         
         self.upload_worker.moveToThread(self.upload_thread)
@@ -265,30 +266,49 @@ class SSHTab(QWidget):
         self.upload_worker.progress.connect(self.update_progress_bar)
         self.upload_worker.output.connect(self.append_output)
         self.upload_worker.completed.connect(self.upload_finished)
-        self.upload_worker.error.connect(self.upload_finished)
+        self.upload_worker.error.connect(self.upload_error_handler)
         
         for signal in [self.upload_worker.completed, self.upload_worker.error]:
-            signal.connect(self.cleanup_upload_thread)
+            signal.connect(lambda: self._safe_cleanup_upload())
             signal.connect(self.upload_worker.deleteLater)
         
         self.upload_thread.finished.connect(self.upload_thread.deleteLater)
+    
+    def upload_error_handler(self, message):
+        """Handle upload errors without blocking GUI"""
+        self.append_output(f"[ERROR] {message}")
+        # Don't show QMessageBox during concurrent uploads - just log it
+        debug_print(f"Upload error for {self.target['session_name']}: {message}")
+    
+    def _safe_cleanup_upload(self):
+        """Safely cleanup upload thread without blocking"""
+        try:
+            self.cleanup_upload_thread()
+        except Exception as e:
+            debug_print(f"Error during upload cleanup: {e}")
 
     def cleanup_upload_thread(self):
         """Clean up upload worker and thread"""
-        if self.upload_thread and self.upload_thread.isRunning():
-            debug_print(f"Cleaning up upload thread for {self.target['session_name']}...")
-            if self.upload_worker:
-                self.upload_worker.stop()
-            self.upload_thread.quit()
-            self.upload_thread.wait(2000)
-            if self.upload_thread.isRunning():
-                debug_print(f"Upload thread for {self.target['session_name']} did not stop. Terminating.")
-                self.upload_thread.terminate()
-                self.upload_thread.wait()
-
-        self.upload_worker = None
-        self.upload_thread = None
-        self.progress_bar.setVisible(False)
+        try:
+            if self.upload_thread and self.upload_thread.isRunning():
+                debug_print(f"Cleaning up upload thread for {self.target['session_name']}...")
+                if self.upload_worker:
+                    try:
+                        self.upload_worker.stop()
+                    except RuntimeError:
+                        debug_print(f"Worker already deleted for {self.target['session_name']}")
+                
+                self.upload_thread.quit()
+                if not self.upload_thread.wait(2000):
+                    debug_print(f"Upload thread for {self.target['session_name']} did not stop in time. Terminating.")
+                    self.upload_thread.terminate()
+                    self.upload_thread.wait()
+        except Exception as e:
+            debug_print(f"Error cleaning up upload thread: {e}")
+        finally:
+            self.upload_worker = None
+            self.upload_thread = None
+            self.progress_bar.setVisible(False)
 
     def update_progress_bar(self, value):
         """Update progress bar value"""
@@ -298,8 +318,10 @@ class SSHTab(QWidget):
         """Handle upload completion"""
         self.append_output(message)
         
+        # Only show error dialogs for critical errors, not during batch uploads
         if 'failed' in message.lower() or 'error' in message.lower():
-            QMessageBox.critical(self, "Upload Error", message)
+            debug_print(f"Upload error for {self.target['session_name']}: {message}")
+            # Don't block GUI with QMessageBox during concurrent uploads
         else:
             self._setup_batch_commands()
 
@@ -307,11 +329,24 @@ class SSHTab(QWidget):
         """Setup batch commands after successful upload"""
         remote_base_dir = f"/home/shared/{self.target['username']}/{self.ssh_manager.var_FOLDER_CR}"
         ENM_SERVER = self.target['session_name']
+        
+        # Use appropriate command format based on mobatch execution mode
+        if hasattr(self, 'mobatch_execution_mode'):
+            if self.mobatch_execution_mode == "CMBULK IMPORT":
+                command_format = self.ssh_manager.CMD_BATCH_SEND_FORMAT_CMBULK
+            elif self.mobatch_execution_mode == "SEND_BASH_COMMAND" and hasattr(self, 'custom_cmd_format') and self.custom_cmd_format:
+                command_format = self.custom_cmd_format
+            else:
+                command_format = self.ssh_manager.CMD_BATCH_SEND_FORMAT
+        else:
+            command_format = self.ssh_manager.CMD_BATCH_SEND_FORMAT
+            
         self.command_batch_RUN.setPlainText(
-            self.ssh_manager.CMD_BATCH_SEND_FORMAT.format(
+            command_format.format(
                 remote_base_dir=remote_base_dir,
                 ENM_SERVER=ENM_SERVER,
-                screen_session=self.ssh_manager.var_SCREEN_CR
+                screen_session=self.ssh_manager.var_SCREEN_CR,
+                password_sesion=self.target.get('password', '')
             )
         )
         self.send_batch_commands()
@@ -328,4 +363,4 @@ class SSHTab(QWidget):
     def retry_upload(self):
         """Retry last upload operation"""
         self.append_output("[RETRY] Functionality not fully implemented yet. Requires storing last upload parameters.")
-        return 
+        return

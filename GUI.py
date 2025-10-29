@@ -37,7 +37,8 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 # Import modules from the lib directory
 from lib.concheck import run_concheck
 from lib.ssh import InteractiveSSH
-from lib.dialogs import ScreenSelectionDialog, MultiConnectDialog, UploadCRDialog, DownloadLogDialog
+from lib.dialogs import ScreenSelectionDialog, MultiConnectDialog, UploadCRDialog, DownloadLogDialog, DuplicateSessionDialog
+from lib.utils import debug_print, duplicate_session
 from lib.workers import UploadWorker, DownloadLogWorker
 from lib.widgets import ConcheckToolsWidget, CRExecutorWidget, ExcelReaderApp, WorkerThread, CMBulkFileMergeWidget, RehomingScriptToolsWidget
 from lib.log_checker import check_logs_and_export_to_excel
@@ -64,8 +65,8 @@ class SSHManager(QMainWindow):
 
         # Load configuration from settings.json
         settings_path = os.path.join(os.path.dirname(__file__), 'settings.json')
-        self.var_FOLDER_CR = "00_CR_FOLDER_DEFAULT" # Default value
-        self.var_SCREEN_CR = "mob_tools_default" # Default value
+        var_FOLDER_CR = "00_CR_FOLDER_DEFAULT" # Default value
+        var_SCREEN_CR = "mob_tools_default" # Default value
         self.ssh_targets_true = [] # Default value
         self.ssh_targets_dtac = [] # Default value
         self.CMD_BATCH_SEND_FORMAT = "cd {remote_base_dir}\nls -ltrh\n pkill -f \"SCREEN.*{screen_session}\" \n screen -S {screen_session} \n bash -i  RUN_CR_{ENM_SERVER}.txt && exit\n" # Default
@@ -83,8 +84,8 @@ class SSHManager(QMainWindow):
         try:
             with open(settings_path, 'r') as f:
                 settings = json.load(f)
-            self.var_FOLDER_CR = settings.get('var_FOLDER_CR', self.var_FOLDER_CR)
-            self.var_SCREEN_CR = settings.get('var_SCREEN_CR', self.var_SCREEN_CR)
+            var_FOLDER_CR = settings.get('var_FOLDER_CR', var_FOLDER_CR)
+            var_SCREEN_CR = settings.get('var_SCREEN_CR', var_SCREEN_CR)
             self.ssh_targets_true = settings.get('ssh_targets_true', self.ssh_targets_true)
             self.ssh_targets_dtac = settings.get('ssh_targets_dtac', self.ssh_targets_dtac)
             self.CMD_BATCH_SEND_FORMAT = settings.get('CMD_BATCH_SEND_FORMAT', self.CMD_BATCH_SEND_FORMAT)
@@ -128,6 +129,8 @@ class SSHManager(QMainWindow):
         self.menu_tools.addAction(self.action_concheck_tools)
         self.menu_tools.addAction(self.action_cmbulk_file_merge)
         
+        
+        
         if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
             debug_print(f"[TIMER] After menu setup: {time.time() - start_time:.2f}s")
 
@@ -137,11 +140,11 @@ class SSHManager(QMainWindow):
 
         # Create separate widgets for TRUE and DTAC modes
         widget_time = time.time()
-        self.cr_executor_widget_true = CRExecutorWidget(self.ssh_targets_true, self, session_type="TRUE")
+        self.cr_executor_widget_true = CRExecutorWidget(self.ssh_targets_true, self, session_type="TRUE", var_FOLDER_CR=var_FOLDER_CR, var_SCREEN_CR=var_SCREEN_CR)
         if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
             debug_print(f"[TIMER] After cr_executor_widget_true: {time.time() - widget_time:.2f}s")
         widget_time = time.time()
-        self.cr_executor_widget_dtac = CRExecutorWidget(self.ssh_targets_dtac, self, session_type="DTAC")
+        self.cr_executor_widget_dtac = CRExecutorWidget(self.ssh_targets_dtac, self, session_type="DTAC", var_FOLDER_CR=var_FOLDER_CR, var_SCREEN_CR=var_SCREEN_CR)
         if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
             debug_print(f"[TIMER] After cr_executor_widget_dtac: {time.time() - widget_time:.2f}s")
         widget_time = time.time()
@@ -179,8 +182,11 @@ class SSHManager(QMainWindow):
 
         # Show the TRUE CR Executor form initially
         self.show_cr_executor_true()
+        
         if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
             debug_print(f"[TIMER] End of __init__: {time.time() - start_time:.2f}s")
+
+    # ...existing code...
 
     def resizeEvent(self, event):
         # Update window styling when resized
@@ -190,6 +196,7 @@ class SSHManager(QMainWindow):
     def show_cr_executor_true(self):
         """Shows the TRUE CR Executor form."""
         self.stacked_widget.setCurrentWidget(self.cr_executor_widget_true)
+        self.setWindowTitle(f"CR TOOLS by esptnnd - CR EXECUTOR TRUE")
         # Ensure background stays behind
         if hasattr(self, 'background_label'):
             self.background_label.lower()
@@ -197,6 +204,7 @@ class SSHManager(QMainWindow):
     def show_cr_executor_dtac(self):
         """Shows the DTAC CR Executor form."""
         self.stacked_widget.setCurrentWidget(self.cr_executor_widget_dtac)
+        self.setWindowTitle(f"CR TOOLS by esptnnd - CR EXECUTOR DTAC")
         # Ensure background stays behind
         if hasattr(self, 'background_label'):
             self.background_label.lower()
@@ -204,24 +212,27 @@ class SSHManager(QMainWindow):
     def show_concheck_tools_form(self):
         """Shows the Excel Reader form."""
         self.stacked_widget.setCurrentWidget(self.excel_reader_app)
+        self.setWindowTitle(f"CR TOOLS by esptnnd - CR REPORT GENERATOR")
         # Ensure background stays behind
         if hasattr(self, 'background_label'):
             self.background_label.lower()
 
     def show_cmbulk_file_merge_form(self):
         self.stacked_widget.setCurrentWidget(self.cmbulk_file_merge_widget)
+        self.setWindowTitle(f"CR TOOLS by esptnnd - CMBULK FILE MERGE")
         if hasattr(self, 'background_label'):
             self.background_label.lower()
 
     def show_rehoming_script_tools_form(self):
         self.stacked_widget.setCurrentWidget(self.rehoming_script_tools_widget)
+        self.setWindowTitle(f"CR TOOLS by esptnnd - Rehoming SCRIPT Tools")
         if hasattr(self, 'background_label'):
             self.background_label.lower()
 
     def get_current_cr_executor_widget(self):
         """Returns the currently active CR Executor widget."""
         current_widget = self.stacked_widget.currentWidget()
-        if current_widget in [self.cr_executor_widget_true, self.cr_executor_widget_dtac]:
+        if isinstance(current_widget, CRExecutorWidget):
             return current_widget
         return None
 
@@ -321,7 +332,7 @@ class SSHManager(QMainWindow):
 
         dlg.exec_()
 
-    def initiate_multi_session_upload(self, selected_folders, selected_sessions, selected_mode, mobatch_paralel, mobatch_timeout, mobatch_execution_mode, mobatch_extra_argument, all_targets_for_session_type, collect_prepost_checked):
+    def initiate_multi_session_upload(self, selected_folders, selected_sessions, selected_mode, mobatch_paralel, mobatch_timeout, mobatch_execution_mode, mobatch_extra_argument, all_targets_for_session_type, collect_prepost_checked, custom_cmd_format=None):
         if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
             debug_print("[CR_DEBUG_SIGNAL] Arguments received in initiate_multi_session_upload:")
             debug_print(f"  selected_folders={selected_folders} type={type(selected_folders)}")
@@ -333,6 +344,7 @@ class SSHManager(QMainWindow):
             debug_print(f"  mobatch_extra_argument={mobatch_extra_argument} type={type(mobatch_extra_argument)}")
             debug_print(f"  all_targets_for_session_type={all_targets_for_session_type} type={type(all_targets_for_session_type)}")
             debug_print(f"  collect_prepost_checked={collect_prepost_checked} type={type(collect_prepost_checked)}")
+            debug_print(f"  custom_cmd_format={custom_cmd_format} type={type(custom_cmd_format)}")
         debug_print("SSHManager: initiate_multi_session_upload called.") # Debug print
         debug_print(f"Manager received upload request for folders: {selected_folders} to sessions: {selected_sessions}")
         debug_print(f"Upload mode: {selected_mode}")
@@ -359,59 +371,72 @@ class SSHManager(QMainWindow):
                 debug_print(f"Upload cancelled due to unconnected sessions: {unconnected_sessions}")
             return # Stop the upload process
 
-        debug_print("SSHManager: Cleaning up local sites_list files...")
         for folder in selected_folders:
+            debug_print(f"SSHManager: Processing folder: {folder}")
+            time.sleep(1) # Add a 1-second delay
+            # Clean up local sites_list files for the current folder
             for file_name in os.listdir(folder):
-                 if file_name.startswith('sites_list_') and file_name.endswith('.txt'):
-                     file_path = os.path.join(folder, file_name)
-                     try:
-                         os.remove(file_path)
-                         if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
-                             debug_print(f"Cleaned up old sites_list file in {folder}: {file_name}")
-                     except Exception as e:
-                         if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
-                             debug_print(f"[WARNING] Failed to remove old sites_list file {file_name} in {folder}: {e}")
+                if file_name.startswith('sites_list_') and file_name.endswith('.txt'):
+                    file_path = os.path.join(folder, file_name)
+                    try:
+                        os.remove(file_path)
+                        if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
+                            debug_print(f"Cleaned up old sites_list file in {folder}: {file_name}")
+                    except Exception as e:
+                        if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
+                            debug_print(f"[WARNING] Failed to remove old sites_list file {file_name} in {folder}: {e}")
 
-        debug_print(f"SSHManager: Processing mode: {selected_mode}") # Debug print
-        session_to_nodes = None
-        if selected_mode == "SPLIT_RANDOMLY":
-            all_nodes = []
-            for folder in selected_folders:
+            session_to_nodes = None
+            if selected_mode == "SPLIT_RANDOMLY":
+                all_nodes = []
                 sites_list_path = os.path.join(folder, "sites_list.txt")
                 if os.path.exists(sites_list_path):
                     with open(sites_list_path, encoding="utf-8") as f:
                         all_nodes.extend([line.strip() for line in f if line.strip()])
-            random.shuffle(all_nodes)
-            n_sessions = len(selected_sessions)
-            split_nodes = [[] for _ in range(n_sessions)]
-            for idx, node in enumerate(all_nodes):
-                split_nodes[idx % n_sessions].append(node)
-            session_to_nodes = {session: split_nodes[i] for i, session in enumerate(selected_sessions)}
-            if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
-                debug_print(selected_sessions)
-                for i, group in enumerate(split_nodes):
-                    debug_print("Session {} nodes: {}".format(i + 1, group))
-
-        debug_print("SSHManager: All selected sessions are connected. Proceeding with upload...")
-        debug_print()
-        for tab in self.get_current_cr_executor_widget().ssh_tabs:
-            if tab.target['session_name'] in selected_sessions:
+                random.shuffle(all_nodes)
+                n_sessions = len(selected_sessions)
+                split_nodes = [[] for _ in range(n_sessions)]
+                for idx, node in enumerate(all_nodes):
+                    split_nodes[idx % n_sessions].append(node)
+                session_to_nodes = {session: split_nodes[i] for i, session in enumerate(selected_sessions)}
                 if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
-                    debug_print(f"SSHManager: Triggering upload for session: {tab.target['session_name']}") # Debug print
-                assigned_nodes = None
-                if selected_mode == "SPLIT_RANDOMLY" and session_to_nodes:
-                     assigned_nodes = session_to_nodes
+                    debug_print(selected_sessions)
+                    for i, group in enumerate(split_nodes):
+                        debug_print("Session {} nodes: {}".format(i + 1, group))
 
-                tab.perform_sftp_and_remote_commands(
-                    selected_folders,
-                    selected_mode,
-                    selected_sessions, # This is the list of selected session names
-                    mobatch_paralel,
-                    mobatch_timeout,
-                    assigned_nodes=assigned_nodes, # Pass the full mapping in SPLIT_RANDOMLY mode
-                    mobatch_execution_mode=mobatch_execution_mode,
-                    collect_prepost_checked=collect_prepost_checked
-                ) # selected_sessions is list of names, assigned_nodes contains the mapping
+            debug_print("SSHManager: All selected sessions are connected. Proceeding with upload...")
+            debug_print()
+            # Add small delay between concurrent uploads to prevent resource contention
+            upload_delay = 0.5
+            for idx, tab in enumerate(self.get_current_cr_executor_widget().ssh_tabs):
+                if tab.target['session_name'] in selected_sessions:
+                    if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
+                        debug_print(f"SSHManager: Triggering upload for session: {tab.target['session_name']}") # Debug print
+                    assigned_nodes = None
+                    if selected_mode == "SPLIT_RANDOMLY" and session_to_nodes:
+                        assigned_nodes = session_to_nodes
+                    
+                    # If SEND_BASH_COMMAND is selected and custom_cmd_format is provided, set it on the tab
+                    if mobatch_execution_mode == "SEND_BASH_COMMAND" and custom_cmd_format:
+                        tab.custom_cmd_format = custom_cmd_format
+                        if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
+                            debug_print(f"Setting custom command format for {tab.target['session_name']}: {custom_cmd_format}")
+
+                    # Add staggered delay for concurrent uploads
+                    if idx > 0:
+                        time.sleep(upload_delay)
+
+                    # Perform SFTP and remote commands with the custom command format
+                    tab.perform_sftp_and_remote_commands(
+                        [folder], # Pass the current folder as a list
+                        selected_mode,
+                        selected_sessions, # This is the list of selected session names
+                        mobatch_paralel,
+                        mobatch_timeout,
+                        assigned_nodes=assigned_nodes, # Pass the full mapping in SPLIT_RANDOMLY mode
+                        mobatch_execution_mode=mobatch_execution_mode,
+                        collect_prepost_checked=collect_prepost_checked
+                    ) # selected_sessions is list of names, assigned_nodes contains the mapping
 
     def open_download_log_dialog(self, targets):
         # Ensure targets is a list before proceeding
@@ -421,13 +446,14 @@ class SSHManager(QMainWindow):
                 debug_print(f"Error: open_download_log_dialog received unexpected targets type: {type(targets).__name__}")
             return
 
-        if not self.get_current_cr_executor_widget():
+        current_widget = self.get_current_cr_executor_widget()
+        if not current_widget:
             QMessageBox.warning(self, "No Sessions Available", "Cannot open download dialog without available sessions.")
             return
 
         # Open the dialog with the passed targets and var_FOLDER_CR from instance variable
         # Use DownloadLogDialog from lib.dialogs
-        dlg = DownloadLogDialog(targets, self.var_FOLDER_CR, self)
+        dlg = DownloadLogDialog(targets, current_widget.var_FOLDER_CR, self)
         # Connect the signal to the handler in SSHManager
         dlg.download_requested.connect(self.handle_download_log_request)
         dlg.exec_()
@@ -440,6 +466,8 @@ class SSHManager(QMainWindow):
             if not current_widget:
                 QMessageBox.warning(self, "No Active Widget", "No active CR Executor widget found.")
                 return
+
+            var_FOLDER_CR = current_widget.var_FOLDER_CR
 
             # Clear the 02_DOWNLOAD directory before starting new downloads
             download_dir = os.path.join(os.path.dirname(__file__), '02_DOWNLOAD')
@@ -484,7 +512,7 @@ class SSHManager(QMainWindow):
 
             # Start downloads for each selected session
             for session_name in selected_sessions:
-                self._start_download_for_session(session_name, download_path, on_download_finished)
+                self._start_download_for_session(session_name, download_path, on_download_finished, var_FOLDER_CR)
 
         except Exception as e:
             QMessageBox.critical(self, "Download Error", 
@@ -528,7 +556,7 @@ class SSHManager(QMainWindow):
                 tab.download_worker = None
                 tab.progress_bar.setVisible(False)
 
-    def _start_download_for_session(self, session_name, download_path, on_download_finished):
+    def _start_download_for_session(self, session_name, download_path, on_download_finished, var_FOLDER_CR):
         """Start download for a specific session with error handling."""
         tab = self.find_ssh_tab(session_name)
         if not tab:
@@ -537,7 +565,7 @@ class SSHManager(QMainWindow):
 
         try:
             # Create and setup worker
-            worker = DownloadLogWorker(tab.target, download_path, self.var_FOLDER_CR)
+            worker = DownloadLogWorker(tab.target, download_path, var_FOLDER_CR)
             thread = QThread()
             worker.moveToThread(thread)
 
@@ -636,6 +664,47 @@ class SSHManager(QMainWindow):
         else:
             debug_print(f"Warning: close_ssh_tab called with invalid index {index} or no active widget.")
 
+    def duplicate_session_group(self):
+        current_widget = self.get_current_cr_executor_widget()
+        if not current_widget:
+            return
+
+        original_session_type = current_widget.session_type
+        base_name = f"CR EXECUTOR {original_session_type}"
+
+        existing_menu_actions = [action.text() for action in self.menu_cr_executor.actions()]
+        new_session_group_name = duplicate_session(base_name, existing_menu_actions)
+
+        dialog = DuplicateSessionDialog(
+            parent=self,
+            folder_cr=current_widget.var_FOLDER_CR,
+            screen_cr=current_widget.var_SCREEN_CR
+        )
+
+        if dialog.exec_() == QDialog.Accepted:
+            new_folder_cr, new_screen_cr = dialog.get_values()
+
+            new_targets = []
+            for tab in current_widget.ssh_tabs:
+                new_target = tab.target.copy()
+                new_targets.append(new_target)
+
+            new_widget = CRExecutorWidget(new_targets, self, session_type=f"{original_session_type} CLONE {len(self.menu_cr_executor.actions()) - 1}", var_FOLDER_CR=new_folder_cr, var_SCREEN_CR=new_screen_cr)
+            self.stacked_widget.addWidget(new_widget)
+
+            new_action = QAction(new_session_group_name, self)
+            self.menu_cr_executor.addAction(new_action)
+            new_action.triggered.connect(lambda: self.show_cr_executor_clone(new_widget))
+
+            QMessageBox.information(self, "Session Group Duplicated", f"Session group \"{base_name}\" has been duplicated as \"{new_session_group_name}\".")
+
+    def show_cr_executor_clone(self, widget):
+        self.stacked_widget.setCurrentWidget(widget)
+        # Update window title with the clone's session type
+        if hasattr(widget, 'session_type'):
+            self.setWindowTitle(f"CR TOOLS by esptnnd - CR EXECUTOR {widget.session_type}")
+        if hasattr(self, 'background_label'):
+            self.background_label.lower()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

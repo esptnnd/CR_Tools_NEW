@@ -9,7 +9,7 @@
 
 # Worker classes
 
-from PyQt5.QtCore import pyqtSignal, QObject, QThread, QFileInfo
+from PyQt5.QtCore import pyqtSignal, QObject, QThread, QFileInfo, QMutex, QMutexLocker
 from PyQt5.QtWidgets import QMessageBox # Needed for UploadWorker and DownloadLogWorker
 import os
 import shutil # Needed for UploadWorker and DownloadLogWorker cleanup
@@ -17,9 +17,13 @@ import pandas as pd # Needed for UploadWorker and check_logs_and_export_to_excel
 import random # Needed for logic in UploadWorker but worker itself doesn't use it directly. Keeping import for now.
 import time # Needed for UploadWorker and DownloadLogWorker
 import zipfile # Needed for UploadWorker and DownloadLogWorker
+import threading # For thread-safe file operations
 
 # Import utility functions if needed by the worker
 from .utils import remove_ansi_escape_sequences, debug_print # Added debug_print
+
+# Global mutex for file system operations to prevent race conditions
+_file_operation_lock = threading.Lock()
 
 class UploadWorker(QObject):
     progress = pyqtSignal(int) # Signal for progress updates (0-100)
@@ -27,9 +31,8 @@ class UploadWorker(QObject):
     error = pyqtSignal(str) # Signal when an error occurs
     output = pyqtSignal(str) # Signal to send output messages to GUI
 
-    def __init__(self, ssh_client, target_info, selected_folders, mode, selected_sessions=None, mobatch_paralel=70, mobatch_timeout=30, assigned_nodes=None, mobatch_execution_mode="REGULAR_MOBATCH", mobatch_extra_argument="", var_FOLDER_CR=None, collect_prepost_checked=False):
+    def __init__(self, target_info, selected_folders, mode, selected_sessions=None, mobatch_paralel=70, mobatch_timeout=30, assigned_nodes=None, mobatch_execution_mode="REGULAR_MOBATCH", mobatch_extra_argument="", var_FOLDER_CR=None, collect_prepost_checked=False, password_sesion=None):
         super().__init__()
-        self.ssh_client = ssh_client
         self.target_info = target_info
         self.selected_folders = selected_folders
         self.mode = mode
@@ -42,6 +45,7 @@ class UploadWorker(QObject):
         self.mobatch_extra_argument = mobatch_extra_argument # Store extra mobatch arguments
         self.var_FOLDER_CR = var_FOLDER_CR
         self.collect_prepost_checked = collect_prepost_checked  # Use the value as passed
+        self.password_sesion = password_sesion
         self.output.emit(f"[CR_DEBUG_INIT] collect_prepost_checked={self.collect_prepost_checked} type={type(self.collect_prepost_checked)}")
         debug_print(f"[CR_DEBUG_INIT] collect_prepost_checked={self.collect_prepost_checked} type={type(self.collect_prepost_checked)}")
 
@@ -49,27 +53,47 @@ class UploadWorker(QObject):
         self._should_stop = True
 
     def run(self):
-        username = self.target_info['username']
-        # Use self.var_FOLDER_CR
-        remote_base_dir = f"/home/shared/{username}/{self.var_FOLDER_CR}"
-        ENM_SERVER = self.target_info['session_name']
-        ENM_PASS = self.target_info['password']
-        tmp_dir = os.path.join("Temp", f"tmp_upload_{ENM_SERVER}")
-        if not os.path.exists("Temp"):
-            os.makedirs("Temp", exist_ok=True)
-        if os.path.exists(tmp_dir):
-            import shutil
-            shutil.rmtree(tmp_dir)
-        os.makedirs(tmp_dir, exist_ok=True)
-
-
-
-        local_run_cr_path = os.path.join(tmp_dir, f"RUN_CR_{ENM_SERVER}.txt")
-        local_zip_path = os.path.join(tmp_dir, f"SFTP_CR_{ENM_SERVER}.zip")
-        remote_zip_path = f"{remote_base_dir}/SFTP_CR_{ENM_SERVER}.zip"
-        remote_run_cr_path = f"{remote_base_dir}/RUN_CR_{ENM_SERVER}.txt"
+        import paramiko
+        client = None
+        sftp = None
+        local_run_cr_path = None
+        local_zip_path = None
 
         try:
+            client = paramiko.SSHClient()
+            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            
+            # Add connection timeout to prevent hanging
+            client.connect(
+                hostname=self.target_info['host'],
+                port=self.target_info['port'],
+                username=self.target_info['username'],
+                password=self.target_info['password'],
+                timeout=30,
+                banner_timeout=30
+            )
+
+            username = self.target_info['username']
+            # Use self.var_FOLDER_CR
+            remote_base_dir = f"/home/shared/{username}/{self.var_FOLDER_CR}"
+            ENM_SERVER = self.target_info['session_name']
+            ENM_PASS = self.target_info['password']
+            
+            # Thread-safe temporary directory creation
+            with _file_operation_lock:
+                tmp_dir = os.path.join("Temp", f"tmp_upload_{ENM_SERVER}_{int(time.time())}")
+                if not os.path.exists("Temp"):
+                    os.makedirs("Temp", exist_ok=True)
+                if os.path.exists(tmp_dir):
+                    import shutil
+                    shutil.rmtree(tmp_dir)
+                os.makedirs(tmp_dir, exist_ok=True)
+
+            local_run_cr_path = os.path.join(tmp_dir, f"RUN_CR_{ENM_SERVER}.txt")
+            local_zip_path = os.path.join(tmp_dir, f"SFTP_CR_{ENM_SERVER}.zip")
+            remote_zip_path = f"{remote_base_dir}/SFTP_CR_{ENM_SERVER}.zip"
+            remote_run_cr_path = f"{remote_base_dir}/RUN_CR_{ENM_SERVER}.txt"
+
             self.output.emit("Starting upload process...")
 
             # 0. Read IPDB mapping
@@ -101,6 +125,7 @@ class UploadWorker(QObject):
             # 1. Generate RUN_CR.txt content
             run_cr_content = ""
             files_to_zip = set()
+            self.selected_folders.sort() # Sort the folders alphabetically
             for folder_path in self.selected_folders:
                 if self._should_stop:
                     self.output.emit("Upload cancelled by user.")
@@ -108,11 +133,8 @@ class UploadWorker(QObject):
                     return
                 folder_name = os.path.basename(folder_path).rstrip()
 
-
-
                 # --- Split sites_list.txt by OSS ---
                 sites_list_path = os.path.join(folder_path, "sites_list.txt")
-
 
                 with open(sites_list_path, encoding="utf-8") as f:
                     nodes = [line.strip() for line in f if line.strip()]
@@ -137,42 +159,49 @@ class UploadWorker(QObject):
                             if oss == "ENM-RAN4" or not oss:
                                 oss = "ENM-RAN5A"
                         oss_to_nodes.setdefault(oss, []).append(node)
-                # Write out sites_list_OSSNAME files
-                for oss, oss_nodes in oss_to_nodes.items():
-                    oss_file = os.path.join(folder_path, f"sites_list_{oss}.txt")
-                    with open(oss_file, "w", encoding="utf-8", newline='\n') as f:
-                        f.write("\n".join(oss_nodes) + "\n")
-                    self.output.emit(f"Generated {oss_file} with {len(oss_nodes)} nodes.")
-                    if os.path.getsize(oss_file) > 0:
-                        files_to_zip.add(oss_file)
-                    else:
-                        self.output.emit(f"[INFO] Skipping mobatch for {oss_file} (file empty)")
+                # Write out sites_list_OSSNAME files with thread safety
+                with _file_operation_lock:
+                    for oss, oss_nodes in oss_to_nodes.items():
+                        oss_file = os.path.join(folder_path, f"sites_list_{oss}.txt")
+                        with open(oss_file, "w", encoding="utf-8", newline='\n') as f:
+                            f.write("\n".join(oss_nodes) + "\n")
+                        self.output.emit(f"Generated {oss_file} with {len(oss_nodes)} nodes.")
+                        if os.path.getsize(oss_file) > 0:
+                            files_to_zip.add(oss_file)
+                        else:
+                            self.output.emit(f"[INFO] Skipping mobatch for {oss_file} (file empty)")
+                
+                if self.mobatch_execution_mode == "PYTHON_MOBATCH":
+                    # Use self.var_FOLDER_CR
+                    run_cr_content += f"python  ~/{self.var_FOLDER_CR}/mobatch_v2.py  ~/{self.var_FOLDER_CR}/{folder_name}/sites_list_{ENM_SERVER}.txt    ~/{self.var_FOLDER_CR}/{folder_name}/command_mos.txt   ~/{self.var_FOLDER_CR}/LOG/{folder_name}/  ~/{self.var_FOLDER_CR}/{folder_name}/  \n\n"
+                elif self.mobatch_execution_mode == "SEND_BASH_COMMAND":
+                    # Use self.var_FOLDER_CR
+                    run_cr_content += f"bash  ~/{self.var_FOLDER_CR}/{folder_name}/renew_token.sh   {self.password_sesion}  \n" 
+                    run_cr_content += f"cd ~/{self.var_FOLDER_CR}/{folder_name}/ && " 
+                    run_cr_content += f"bash  ~/{self.var_FOLDER_CR}/{folder_name}/command_mos.txt  ~/{self.var_FOLDER_CR}/{folder_name}/sites_list_{ENM_SERVER}.txt     {folder_name}   \n\n"
+                else: # REGULAR_MOBATCH                
+                    # Use self.var_FOLDER_CR
+                    run_cr_content += f"cd ~/{self.var_FOLDER_CR}/{folder_name}/ && " # Keep this line as it was in your provided code
+                    run_cr_content += f"mobatch -p {self.mobatch_paralel} -t {self.mobatch_timeout} {self.mobatch_extra_argument} ~/{self.var_FOLDER_CR}/{folder_name}/sites_list_{ENM_SERVER}.txt  ~/{self.var_FOLDER_CR}/{folder_name}/command_mos.txt  ~/{self.var_FOLDER_CR}/LOG/{folder_name}/\n"
 
             # --- Cleanup: Remove any stray tmp_command_mos_* files before zipping ---
-            for folder_path in self.selected_folders:
-                # List all files in this folder (recursively)
-                all_files = []
-                for root, dirs, files in os.walk(folder_path):
-                    for file in files:
-                        all_files.append(os.path.join(root, file))
-                        if file.startswith('tmp_command_mos_'):
-                            try:
-                                os.remove(os.path.join(root, file))
-                                self.output.emit(f"[CLEANUP] Removed stray {file} from {root}")
-                            except Exception as e:
-                                self.output.emit(f"[CLEANUP ERROR] Could not remove {file} from {root}: {e}")
-                self.output.emit(f"[CR_DEBUG_UPLOAD][{folder_path}]  VALUE_collect_prepost_checked={self.collect_prepost_checked}  files_to_zip={list(files_to_zip)}  all_files={all_files}")
-                debug_print(f"[CR_DEBUG_UPLOAD][{folder_path}]  VALUE_collect_prepost_checked={self.collect_prepost_checked}  files_to_zip={list(files_to_zip)}  all_files={all_files}")
+            with _file_operation_lock:
+                for folder_path in self.selected_folders:
+                    # List all files in this folder (recursively)
+                    all_files = []
+                    for root, dirs, files in os.walk(folder_path):
+                        for file in files:
+                            all_files.append(os.path.join(root, file))
+                            if file.startswith('tmp_command_mos_'):
+                                try:
+                                    os.remove(os.path.join(root, file))
+                                    self.output.emit(f"[CLEANUP] Removed stray {file} from {root}")
+                                except Exception as e:
+                                    self.output.emit(f"[CLEANUP ERROR] Could not remove {file} from {root}: {e}")
+                    self.output.emit(f"[CR_DEBUG_UPLOAD][{folder_path}]  VALUE_collect_prepost_checked={self.collect_prepost_checked}  files_to_zip={list(files_to_zip)}  all_files={all_files}")
+                    debug_print(f"[CR_DEBUG_UPLOAD][{folder_path}]  VALUE_collect_prepost_checked={self.collect_prepost_checked}  files_to_zip={list(files_to_zip)}  all_files={all_files}")
 
             # 2. Create local RUN_CR_{ENM_SERVER}.txt
-            if self.mobatch_execution_mode == "PYTHON_MOBATCH":
-                # Use self.var_FOLDER_CR
-                run_cr_content += f"python  ~/{self.var_FOLDER_CR}/mobatch_v2.py  ~/{self.var_FOLDER_CR}/{folder_name}/sites_list_{ENM_SERVER}.txt    ~/{self.var_FOLDER_CR}/{folder_name}/command_mos.txt   ~/{self.var_FOLDER_CR}/LOG/{folder_name}/  ~/{self.var_FOLDER_CR}/{folder_name}/  \n\n"
-            else: # REGULAR_MOBATCH
-                # Use self.var_FOLDER_CR
-                run_cr_content += f"cd ~/{self.var_FOLDER_CR}/{folder_name}/ && " # Keep this line as it was in your provided code
-                run_cr_content += f"mobatch -p {self.mobatch_paralel} -t {self.mobatch_timeout} {self.mobatch_extra_argument} ~/{self.var_FOLDER_CR}/{folder_name}/sites_list_{ENM_SERVER}.txt  ~/{self.var_FOLDER_CR}/{folder_name}/command_mos.txt  ~/{self.var_FOLDER_CR}/LOG/{folder_name}/\n"
-
             with open(local_run_cr_path, "w", encoding="utf-8", newline='\n') as f:
                 f.write(run_cr_content)
             self.output.emit(f"Generated local {local_run_cr_path}")            
@@ -214,29 +243,30 @@ class UploadWorker(QObject):
                             # Special handling for command_mos.txt
                             if file == 'command_mos.txt':
                                 if self.collect_prepost_checked:
-                                    tmp_command_mos_path = os.path.join(root, f"tmp_command_mos_{ENM_SERVER}.txt")
-                                    with open(file_path, "r", encoding="utf-8") as f:
-                                        content = f.read()
-                                    with open(tmp_command_mos_path, "w", encoding="utf-8") as f:
-                                        f.write(
-                                            "uv com_username=rbs\nuv com_password=rbs\nlt cell|sectorcar|iublink\ny\n\n"
-                                            "####LOG_Alarm_bf\naltc\n"
-                                            "####LOG_status_bf\n"
-                                            "hgetc ^(UtranCell|NRCellDU|EUtranCell.DD|NodeBLocalCell|trx|RbsLocalCell)= ^(operationalState|administrativeState)$"
-                                            "\n\n\n"
-                                        )
-                                        f.write(content)
-                                        f.write(
-                                            "\n\n\nwait 5\n"
-                                            "uv com_username=rbs\nuv com_password=rbs\nlt cell|sectorcar|iublink\ny\n\n"
-                                            "####LOG_Alarm_af\naltc\n"
-                                            "####LOG_status_af\n"
-                                            "hgetc ^(UtranCell|NRCellDU|EUtranCell.DD|NodeBLocalCell|trx|RbsLocalCell)= ^(operationalState|administrativeState)$"
-                                            "\n\n\n"
-                                        )
-                                    zipf.write(tmp_command_mos_path, arcname)
-                                    already_zipped.add(arcname)
-                                    os.remove(tmp_command_mos_path)
+                                    with _file_operation_lock:
+                                        tmp_command_mos_path = os.path.join(root, f"tmp_command_mos_{ENM_SERVER}_{int(time.time())}.txt")
+                                        with open(file_path, "r", encoding="utf-8") as f:
+                                            content = f.read()
+                                        with open(tmp_command_mos_path, "w", encoding="utf-8") as f:
+                                            f.write(
+                                                "uv com_username=rbs\nuv com_password=rbs\nlt cell|sectorcar|iublink\ny\n\n"
+                                                "####LOG_Alarm_bf\naltc\n"
+                                                "####LOG_status_bf\n"
+                                                "hgetc ^(UtranCell|NRCellDU|EUtranCell.DD|NodeBLocalCell|trx|RbsLocalCell)= ^(operationalState|administrativeState)$"
+                                                "\n\n\n"
+                                            )
+                                            f.write(content)
+                                            f.write(
+                                                "\n\n\nwait 5\n"
+                                                "uv com_username=rbs\nuv com_password=rbs\nlt cell|sectorcar|iublink\ny\n\n"
+                                                "####LOG_Alarm_af\naltc\n"
+                                                "####LOG_status_af\n"
+                                                "hgetc ^(UtranCell|NRCellDU|EUtranCell.DD|NodeBLocalCell|trx|RbsLocalCell)= ^(operationalState|administrativeState)$"
+                                                "\n\n\n"
+                                            )
+                                        zipf.write(tmp_command_mos_path, arcname)
+                                        already_zipped.add(arcname)
+                                        os.remove(tmp_command_mos_path)
                                 else:
                                     zipf.write(file_path, arcname)
                                     already_zipped.add(arcname)
@@ -290,7 +320,7 @@ class UploadWorker(QObject):
                 return
 
             # 4. Establish SFTP connection
-            sftp = self.ssh_client.open_sftp()
+            sftp = client.open_sftp()
             self.output.emit("SFTP connection established.")
 
             # 6. Check/Create remote directory
@@ -299,7 +329,7 @@ class UploadWorker(QObject):
                 self.output.emit(f"Remote directory {remote_base_dir} already exists.")
             except FileNotFoundError:
                 self.output.emit(f"Remote directory {remote_base_dir} not found, creating...")
-                stdin, stdout, stderr = self.ssh_client.exec_command(f"mkdir -p {remote_base_dir}")
+                stdin, stdout, stderr = client.exec_command(f"mkdir -p {remote_base_dir}")
                 error_output = stderr.read().decode()
                 if error_output:
                     raise Exception(f"Error creating remote directory: {error_output}")
@@ -315,7 +345,7 @@ class UploadWorker(QObject):
             if self.mobatch_execution_mode not in ["REGULAR_MOBATCH_nodelete"]:
                 self.output.emit(f"Cleaning up remote directory {remote_base_dir}/*...")
                 cleanup_command = f"rm -rf {remote_base_dir}/*"
-                stdin, stdout, stderr = self.ssh_client.exec_command(cleanup_command)
+                stdin, stdout, stderr = client.exec_command(cleanup_command)
                 stdout.read()
                 stderr_output = stderr.read().decode()
                 if stderr_output:
@@ -364,7 +394,7 @@ class UploadWorker(QObject):
             # 8. Remote Unzip
             self.output.emit(f"Unzipping {os.path.basename(local_zip_path)} on remote server...")
             unzip_command = f"cd {remote_base_dir} && unzip -o {os.path.basename(local_zip_path)}"
-            stdin, stdout, stderr = self.ssh_client.exec_command(unzip_command)
+            stdin, stdout, stderr = client.exec_command(unzip_command)
             self.output.emit("Remote unzip output:")
             self.output.emit(stdout.read().decode())
             error_output = stderr.read().decode()
@@ -379,7 +409,7 @@ class UploadWorker(QObject):
             # 9. Remote Execution
             self.output.emit(f"Executing remote command: ./{os.path.basename(local_run_cr_path)}")
             execute_command = f"cd {remote_base_dir} && ./{os.path.basename(local_run_cr_path)}"
-            stdin, stdout, stderr = self.ssh_client.exec_command(execute_command)
+            stdin, stdout, stderr = client.exec_command(execute_command)
             self.output.emit("Remote execution output:")
             self.output.emit(stdout.read().decode())
             error_output = stderr.read().decode()
@@ -402,19 +432,33 @@ class UploadWorker(QObject):
             self.output.emit("Upload and remote execution process finished.")
             self.completed.emit("Upload completed successfully.")
 
-
-
         except Exception as e:
-            self.output.emit(f"Upload failed: {str(e)}")
-            self.error.emit(f"Upload failed: {str(e)}")
+            error_msg = f"Upload failed: {str(e)}"
+            self.output.emit(error_msg)
+            self.error.emit(error_msg)
+            debug_print(f"Upload error for {self.target_info['session_name']}: {e}")
         finally:
-            # 10. Clean up local temporary files
-            if os.path.exists(local_run_cr_path):
-                ##os.remove(local_run_cr_path) # Keep temp files for retry
-                self.output.emit(f"Kept local {local_run_cr_path} for retry.")
-            if os.path.exists(local_zip_path):
-                ##os.remove(local_zip_path) # Keep temp files for retry
-                self.output.emit(f"Kept local {local_zip_path} for retry.")
+            # 10. Clean up local temporary files with thread safety
+            with _file_operation_lock:
+                if local_run_cr_path and os.path.exists(local_run_cr_path):
+                    ##os.remove(local_run_cr_path) # Keep temp files for retry
+                    self.output.emit(f"Kept local {local_run_cr_path} for retry.")
+                if local_zip_path and os.path.exists(local_zip_path):
+                    ##os.remove(local_zip_path) # Keep temp files for retry
+                    self.output.emit(f"Kept local {local_zip_path} for retry.")
+            
+            # Safely close SFTP and SSH connections
+            try:
+                if sftp:
+                    sftp.close()
+            except Exception as e:
+                debug_print(f"Error closing SFTP connection: {e}")
+            
+            try:
+                if client:
+                    client.close()
+            except Exception as e:
+                debug_print(f"Error closing SSH client: {e}")
 
     # The initiate_multi_session_upload method is not part of the worker,
     # it should remain in SSHManager.
