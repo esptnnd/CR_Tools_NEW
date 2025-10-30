@@ -1,3 +1,7 @@
+
+Here is the project history:
+
+```text
 # -----------------------------------------------------------------------------
 # Author                : esptnnd
 # Tools Name            : CR_Tools_NEW
@@ -61,7 +65,6 @@
 # # - Simplifies the UI with a single "Browse" button.
 # # - Improves path formatting and color-coding in the Excel report.
 # -----------------------------------------------------------------------------
-
 
   **CR Tools New** is a comprehensive Python-based application designed for network engineers to streamline various tasks. It
   features a user-friendly Graphical User Interface (GUI) that provides robust SSH connectivity for managing multiple server sessions.
