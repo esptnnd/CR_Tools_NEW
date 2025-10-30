@@ -30,6 +30,8 @@ class UploadWorker(QObject):
     completed = pyqtSignal(str) # Signal when upload is completed successfully
     error = pyqtSignal(str) # Signal when an error occurs
     output = pyqtSignal(str) # Signal to send output messages to GUI
+    zip_uploaded = pyqtSignal()  # Signal when ZIP is successfully uploaded
+    stage_update = pyqtSignal(str)  # Signal for stage updates (preparing, zipping, uploading, executing)
 
     def __init__(self, target_info, selected_folders, mode, selected_sessions=None, mobatch_paralel=70, mobatch_timeout=30, assigned_nodes=None, mobatch_execution_mode="REGULAR_MOBATCH", mobatch_extra_argument="", var_FOLDER_CR=None, collect_prepost_checked=False, password_sesion=None):
         super().__init__()
@@ -95,6 +97,7 @@ class UploadWorker(QObject):
             remote_run_cr_path = f"{remote_base_dir}/RUN_CR_{ENM_SERVER}.txt"
 
             self.output.emit("Starting upload process...")
+            self.stage_update.emit('preparing')
 
             # 0. Read IPDB mapping
             node_to_oss = None
@@ -202,11 +205,14 @@ class UploadWorker(QObject):
                     debug_print(f"[CR_DEBUG_UPLOAD][{folder_path}]  VALUE_collect_prepost_checked={self.collect_prepost_checked}  files_to_zip={list(files_to_zip)}  all_files={all_files}")
 
             # 2. Create local RUN_CR_{ENM_SERVER}.txt
+            self.stage_update.emit('preparing')
             with open(local_run_cr_path, "w", encoding="utf-8", newline='\n') as f:
                 f.write(run_cr_content)
             self.output.emit(f"Generated local {local_run_cr_path}")            
 
             # 3. Create SFTP_CR_{ENM_SERVER}.zip with all files from each folder_path (recursively)
+            self.stage_update.emit('zipping')
+            self.output.emit("Creating ZIP archive...")
             with zipfile.ZipFile(local_zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
                 zipf.write(local_run_cr_path, os.path.basename(local_run_cr_path)) # Add RUN_CR to zip
                 # Add all files from files_to_zip (pre-post logic handled above)
@@ -360,30 +366,37 @@ class UploadWorker(QObject):
                 return
 
             # 7. Upload files
+            self.stage_update.emit('uploading')
             local_zip_size = QFileInfo(local_zip_path).size()
 
             def zip_upload_progress(bytes_transferred, bytes_total):
                  if bytes_total > 0:
-                     percent = int(bytes_transferred / bytes_total * 90) # Reserve 10% for other steps
+                     percent = int(bytes_transferred / bytes_total * 85) # Reserve 15% for other steps
                      self.progress.emit(percent)
 
             self.output.emit(f"Uploading {local_zip_path} to {remote_zip_path}")
             sftp.put(local_zip_path, remote_zip_path, callback=zip_upload_progress)
-            self.output.emit(f"Uploaded {local_zip_path}.")
+            self.output.emit(f"✓ ZIP uploaded successfully: {local_zip_path}")
+            
+            # Emit signal that ZIP is uploaded (mark as successful at this point)
+            self.zip_uploaded.emit()
+            self.progress.emit(90)
 
             if self._should_stop:
                 self.output.emit("Upload cancelled by user.")
                 self.error.emit("Upload cancelled.")
-                sftp.close()
+                if sftp:
+                    sftp.close()
                 return
 
-            self.progress.emit(95) # Indicate progress between zip and RUN_CR.txt upload
+            self.progress.emit(92) # Indicate progress between zip and RUN_CR.txt upload
             self.output.emit(f"Uploading {local_run_cr_path} to {remote_run_cr_path}")
             sftp.put(local_run_cr_path, remote_run_cr_path)
-            self.progress.emit(100) # Indicate file uploads are complete
+            self.progress.emit(95) # Indicate file uploads are complete
 
             # Close SFTP connection
-            sftp.close()
+            if sftp:
+                sftp.close()
             self.output.emit("SFTP connection closed.")
 
             if self._should_stop:
@@ -392,6 +405,7 @@ class UploadWorker(QObject):
                 return
 
             # 8. Remote Unzip
+            self.stage_update.emit('unzipping')
             self.output.emit(f"Unzipping {os.path.basename(local_zip_path)} on remote server...")
             unzip_command = f"cd {remote_base_dir} && unzip -o {os.path.basename(local_zip_path)}"
             stdin, stdout, stderr = client.exec_command(unzip_command)

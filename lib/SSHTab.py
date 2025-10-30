@@ -10,7 +10,7 @@
 
 
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QMessageBox
-from PyQt5.QtCore import QThread, QTimer, Qt, QEvent
+from PyQt5.QtCore import QThread, QTimer, Qt, QEvent, pyqtSlot
 from PyQt5.QtGui import QTextCursor
 from lib.style import TransparentTextEdit, StyledPushButton, StyledLineEdit, StyledProgressBar
 from lib.ssh import InteractiveSSH
@@ -264,19 +264,47 @@ class SSHTab(QWidget):
         """Connect all upload worker signals"""
         self.upload_thread.started.connect(self.upload_worker.run)
         self.upload_worker.progress.connect(self.update_progress_bar)
+        self.upload_worker.progress.connect(self._report_progress_to_manager)
+        self.upload_worker.stage_update.connect(self._report_stage_to_manager)
+        self.upload_worker.zip_uploaded.connect(self._handle_zip_uploaded)
+        
         self.upload_worker.output.connect(self.append_output)
         self.upload_worker.completed.connect(self.upload_finished)
         self.upload_worker.error.connect(self.upload_error_handler)
         
-        for signal in [self.upload_worker.completed, self.upload_worker.error]:
-            signal.connect(lambda: self._safe_cleanup_upload())
-            signal.connect(self.upload_worker.deleteLater)
+        # Connect cleanup to make sure it happens after completion/error is processed
+        # Use direct connections to ensure proper order
+        self.upload_worker.completed.connect(self._delayed_cleanup_upload)
+        self.upload_worker.error.connect(self._delayed_cleanup_upload)
+        self.upload_worker.completed.connect(self.upload_worker.deleteLater)
+        self.upload_worker.error.connect(self.upload_worker.deleteLater)
         
         self.upload_thread.finished.connect(self.upload_thread.deleteLater)
+    
+    def _report_progress_to_manager(self, progress):
+        """Report upload progress to SSH Manager for global tracking"""
+        if self.ssh_manager and hasattr(self.ssh_manager, 'update_upload_progress'):
+            self.ssh_manager.update_upload_progress(self.target['session_name'], progress)
+    
+    def _report_stage_to_manager(self, stage):
+        """Report upload stage to SSH Manager"""
+        if self.ssh_manager and hasattr(self.ssh_manager, 'update_upload_progress'):
+            # Get current progress
+            progress = self.progress_bar.value()
+            self.ssh_manager.update_upload_progress(self.target['session_name'], progress, stage)
+    
+    def _handle_zip_uploaded(self):
+        """Handle successful ZIP upload - mark this specific milestone"""
+        self.append_output("✓ ZIP file uploaded successfully!")
+        if self.ssh_manager and hasattr(self.ssh_manager, 'register_upload_zip_complete'):
+            self.ssh_manager.register_upload_zip_complete(self.target['session_name'])
     
     def upload_error_handler(self, message):
         """Handle upload errors without blocking GUI"""
         self.append_output(f"[ERROR] {message}")
+        # Report error to manager
+        if self.ssh_manager and hasattr(self.ssh_manager, 'register_upload_error'):
+            self.ssh_manager.register_upload_error(self.target['session_name'])
         # Don't show QMessageBox during concurrent uploads - just log it
         debug_print(f"Upload error for {self.target['session_name']}: {message}")
     
@@ -286,6 +314,14 @@ class SSHTab(QWidget):
             self.cleanup_upload_thread()
         except Exception as e:
             debug_print(f"Error during upload cleanup: {e}")
+    
+    def _delayed_cleanup_upload(self):
+        """Delay cleanup to allow queued signals to be processed"""
+        # Schedule cleanup after a brief delay to ensure all signals are processed
+        # Add a small delay to ensure completion is properly registered before cleanup
+        from PyQt5.QtCore import QTimer
+        debug_print(f"[DELAYED_CLEANUP] Scheduling cleanup for {self.target['session_name']} in 1000ms to ensure completion is processed")
+        QTimer.singleShot(1000, self._safe_cleanup_upload)
 
     def cleanup_upload_thread(self):
         """Clean up upload worker and thread"""
@@ -318,11 +354,18 @@ class SSHTab(QWidget):
         """Handle upload completion"""
         self.append_output(message)
         
-        # Only show error dialogs for critical errors, not during batch uploads
         if 'failed' in message.lower() or 'error' in message.lower():
             debug_print(f"Upload error for {self.target['session_name']}: {message}")
+            if self.ssh_manager and hasattr(self.ssh_manager, 'register_upload_error'):
+                self.ssh_manager.register_upload_error(self.target['session_name'])
             # Don't block GUI with QMessageBox during concurrent uploads
         else:
+            debug_print(f"[WORKER] Emitted upload_done for {self.target['session_name']}")
+            # Set individual progress bar to 100% to indicate completion
+            self.progress_bar.setValue(100)
+            # Also report to manager that this upload is complete
+            if self.ssh_manager and hasattr(self.ssh_manager, 'register_upload_complete'):
+                self.ssh_manager.register_upload_complete(self.target['session_name'])
             self._setup_batch_commands()
 
     def _setup_batch_commands(self):

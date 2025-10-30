@@ -13,6 +13,7 @@ import os
 import json
 import random
 import pandas as pd
+import threading
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QTabWidget, QWidget,
     QVBoxLayout, QTextEdit, QLineEdit, QPushButton, QHBoxLayout,
@@ -41,6 +42,7 @@ from lib.dialogs import ScreenSelectionDialog, MultiConnectDialog, UploadCRDialo
 from lib.utils import debug_print, duplicate_session
 from lib.workers import UploadWorker, DownloadLogWorker
 from lib.widgets import ConcheckToolsWidget, CRExecutorWidget, ExcelReaderApp, WorkerThread, CMBulkFileMergeWidget, RehomingScriptToolsWidget
+from lib.before_after_widget import BeforeAfterReportWidget
 from lib.log_checker import check_logs_and_export_to_excel
 from lib.report_generator import process_single_log, CATEGORY_CHECKING, CATEGORY_CHECKING1, write_logs_to_excel
 from lib.style import (
@@ -115,6 +117,9 @@ class SSHManager(QMainWindow):
         self.menu_bar = self.menuBar()
         self.menu_cr_executor = self.menu_bar.addMenu("CR EXECUTOR")
         self.menu_tools = self.menu_bar.addMenu("Other Tools")
+        
+        # Add the Show Upload Progress action
+        self.action_show_upload_progress = QAction("Show Upload Progress", self)
 
         # Add Actions
         self.action_cr_executor_true = QAction("CR EXECUTOR TRUE", self)
@@ -122,21 +127,83 @@ class SSHManager(QMainWindow):
         self.action_concheck_tools = QAction("CR REPORT GENERATOR", self)
         self.action_cmbulk_file_merge = QAction("CMBULK FILE MERGE", self)
         self.action_rehoming_script_tools = QAction("Rehoming SCRIPT Tools", self)
+        self.action_before_after_report = QAction("Before After REPORT", self)
 
         self.menu_cr_executor.addAction(self.action_cr_executor_true)
         self.menu_cr_executor.addAction(self.action_cr_executor_dtac)
         self.menu_tools.addAction(self.action_rehoming_script_tools)
         self.menu_tools.addAction(self.action_concheck_tools)
         self.menu_tools.addAction(self.action_cmbulk_file_merge)
+        self.menu_tools.addAction(self.action_before_after_report)
+        self.menu_tools.addAction(self.action_show_upload_progress)
         
+        # Connect the show upload progress action
+        self.action_show_upload_progress.triggered.connect(self._toggle_upload_menu_action)
         
+        # Initialize global upload tracking per session group
+        self._active_uploads = {}  # {session_name: upload_info}
+        self._session_group_uploads = {}  # {session_group: {session_name: upload_info}}
+        self._upload_lock = threading.Lock()
+        
+        # Track user preference for upload progress visibility
+        self._upload_progress_user_shown = False
         
         if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
             debug_print(f"[TIMER] After menu setup: {time.time() - start_time:.2f}s")
 
         # Create Stacked Widget
         self.stacked_widget = QStackedWidget()
-        self.setCentralWidget(self.stacked_widget)
+        
+        # Create main container with progress bar
+        main_container = QWidget()
+        main_layout = QVBoxLayout()
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+        
+        # Add stacked widget to container
+        main_layout.addWidget(self.stacked_widget)
+        
+        # Create global progress bar for upload operations
+        self.global_progress_container = QWidget()
+        self.global_progress_container.setMaximumHeight(120)
+        self.global_progress_container.setStyleSheet("""
+            QWidget {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 rgba(20, 30, 50, 250),
+                    stop:1 rgba(30, 40, 60, 250));
+                border-top: 3px solid qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #00aaff,
+                    stop:0.5 #0088ff,
+                    stop:1 #0066ff);
+                border-radius: 0px;
+            }
+        """)
+        progress_layout = QVBoxLayout()
+        progress_layout.setContentsMargins(15, 8, 15, 8)
+        
+        self.global_progress_label = QLabel("🔄 Upload Progress")
+        self.global_progress_label.setStyleSheet("""
+            color: white; 
+            font-weight: bold; 
+            font-size: 13px;
+            background: transparent;
+        """)
+        
+        # Container for per-session-group progress bars
+        self.session_progress_layout = QVBoxLayout()
+        self.session_progress_layout.setSpacing(5)
+        self.session_progress_widgets = {}  # {session_group: (label, progressbar)}
+        
+        progress_layout.addWidget(self.global_progress_label)
+        progress_layout.addLayout(self.session_progress_layout)
+        
+        self.global_progress_container.setLayout(progress_layout)
+        self.global_progress_container.setVisible(False)  # Hidden by default
+        
+        main_layout.addWidget(self.global_progress_container)
+        main_container.setLayout(main_layout)
+        
+        self.setCentralWidget(main_container)
 
         # Create separate widgets for TRUE and DTAC modes
         widget_time = time.time()
@@ -175,6 +242,7 @@ class SSHManager(QMainWindow):
         self.action_concheck_tools.triggered.connect(self.show_concheck_tools_form)
         self.action_cmbulk_file_merge.triggered.connect(self.show_cmbulk_file_merge_form)
         self.action_rehoming_script_tools.triggered.connect(self.show_rehoming_script_tools_form)
+        self.action_before_after_report.triggered.connect(self.show_before_after_report_form)
 
         # Connect tab change signals for both CR Executor widgets
         self.cr_executor_widget_true.tabs.currentChanged.connect(self.profile_tab_change)
@@ -226,6 +294,18 @@ class SSHManager(QMainWindow):
     def show_rehoming_script_tools_form(self):
         self.stacked_widget.setCurrentWidget(self.rehoming_script_tools_widget)
         self.setWindowTitle(f"CR TOOLS by esptnnd - Rehoming SCRIPT Tools")
+        if hasattr(self, 'background_label'):
+            self.background_label.lower()
+
+    def show_before_after_report_form(self):
+        """Shows the Before/After Report form."""
+        # Create the widget if it doesn't exist yet
+        if not hasattr(self, 'before_after_report_widget'):
+            self.before_after_report_widget = BeforeAfterReportWidget(start_path=self.START_PATH)
+            self.stacked_widget.addWidget(self.before_after_report_widget)
+        
+        self.stacked_widget.setCurrentWidget(self.before_after_report_widget)
+        self.setWindowTitle(f"CR TOOLS by esptnnd - Before After REPORT")
         if hasattr(self, 'background_label'):
             self.background_label.lower()
 
@@ -408,13 +488,22 @@ class SSHManager(QMainWindow):
             debug_print()
             # Add small delay between concurrent uploads to prevent resource contention
             upload_delay = 0.5
-            for idx, tab in enumerate(self.get_current_cr_executor_widget().ssh_tabs):
+            
+            # Get current session group name
+            current_widget = self.get_current_cr_executor_widget()
+            session_group = current_widget.session_type if current_widget else "UNKNOWN"
+            
+            for idx, tab in enumerate(current_widget.ssh_tabs):
                 if tab.target['session_name'] in selected_sessions:
                     if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
                         debug_print(f"SSHManager: Triggering upload for session: {tab.target['session_name']}") # Debug print
                     assigned_nodes = None
                     if selected_mode == "SPLIT_RANDOMLY" and session_to_nodes:
                         assigned_nodes = session_to_nodes
+                    
+                    # Register upload start for global tracking with session group
+                    folder_name = os.path.basename(folder) if folder else "Unknown"
+                    self.register_upload_start(tab.target['session_name'], folder_name, session_group)
                     
                     # If SEND_BASH_COMMAND is selected and custom_cmd_format is provided, set it on the tab
                     if mobatch_execution_mode == "SEND_BASH_COMMAND" and custom_cmd_format:
@@ -663,6 +752,264 @@ class SSHManager(QMainWindow):
                     widget.ssh_tabs.remove(tab_to_close)
         else:
             debug_print(f"Warning: close_ssh_tab called with invalid index {index} or no active widget.")
+    
+    def register_upload_start(self, session_name, folder_name, session_group):
+        """Register a new upload operation for a specific session group"""
+        with self._upload_lock:
+            # Initialize session group if not exists
+            if session_group not in self._session_group_uploads:
+                self._session_group_uploads[session_group] = {}
+                debug_print(f"[REGISTER_START] Created new session group: {session_group}")
+            
+            # Register upload for this session in the group
+            self._session_group_uploads[session_group][session_name] = {
+                'folder': folder_name,
+                'progress': 0,
+                'status': 'uploading',
+                'stage': 'preparing'  # preparing, zipping, uploading, complete
+            }
+            debug_print(f"[REGISTER_START] Registered {session_name} in group {session_group}, folder={folder_name}")
+            debug_print(f"[REGISTER_START] Current groups and sessions: {[(grp, list(sess.keys())) for grp, sess in self._session_group_uploads.items()]}")
+            self._update_global_progress()
+    
+    def update_upload_progress(self, session_name, progress, stage='uploading'):
+        """Update progress for a specific upload"""
+        with self._upload_lock:
+            # Find which session group this session belongs to
+            for group, sessions in self._session_group_uploads.items():
+                if session_name in sessions:
+                    sessions[session_name]['progress'] = progress
+                    sessions[session_name]['stage'] = stage
+                    self._update_global_progress()
+                    break
+    
+    def register_upload_zip_complete(self, session_name):
+        """Mark ZIP upload as completed (not final completion)"""
+        with self._upload_lock:
+            for group, sessions in self._session_group_uploads.items():
+                if session_name in sessions:
+                    sessions[session_name]['stage'] = 'zip_uploaded'
+                    sessions[session_name]['progress'] = 95
+                    self._update_global_progress()
+                    break
+    
+    def register_upload_complete(self, session_name):
+        """Mark an upload as fully completed (after successful execution)"""
+        debug_print(f"[REGISTER_COMPLETE] Called for {session_name}")
+        with self._upload_lock:
+            session_found = False
+            for group, sessions in self._session_group_uploads.items():
+                if session_name in sessions:
+                    debug_print(f"[REGISTER_COMPLETE] Found {session_name} in group {group}, setting to completed")
+                    debug_print(f"[REGISTER_COMPLETE] Before update - status: {sessions[session_name]['status']}, progress: {sessions[session_name]['progress']}")
+                    sessions[session_name]['status'] = 'completed'
+                    sessions[session_name]['progress'] = 100
+                    sessions[session_name]['stage'] = 'complete'
+                    debug_print(f"[REGISTER_COMPLETE] After update - status: {sessions[session_name]['status']}, progress: {sessions[session_name]['progress']}")
+                    self._update_global_progress()
+                    # Schedule removal on GUI thread - capture variables in lambda closure
+                    self._schedule_upload_removal(session_name, group)
+                    session_found = True
+                    break
+            
+            # If session was not found, it might have been removed already, so we ignore
+            # But log if debugging is enabled
+            if not session_found:
+                debug_print(f"[REGISTER_COMPLETE] WARNING: {session_name} not found in tracking. May have been removed already or registration issue.")
+                debug_print(f"[REGISTER_COMPLETE] Current groups: {list(self._session_group_uploads.keys())}")
+                for grp, sess in self._session_group_uploads.items():
+                    debug_print(f"[REGISTER_COMPLETE] Group '{grp}' has sessions: {list(sess.keys())}")
+                    
+                # Check if this is a timing issue - the session might have been registered after progress update
+                # In case of any session completion, force an update to ensure display is correct
+                self._update_global_progress()
+    
+    def _schedule_upload_removal(self, session_name, group):
+        """Schedule upload removal on GUI thread"""
+        # Use a lambda with default arguments to capture current values
+        QTimer.singleShot(3000, lambda sn=session_name, grp=group: self._remove_upload(sn, grp))
+    
+    def register_upload_error(self, session_name):
+        """Mark an upload as failed"""
+        with self._upload_lock:
+            for group, sessions in self._session_group_uploads.items():
+                if session_name in sessions:
+                    sessions[session_name]['status'] = 'error'
+                    sessions[session_name]['stage'] = 'error'
+                    self._update_global_progress()
+                    # Use lambda with default arguments to capture current values
+                    QTimer.singleShot(5000, lambda sn=session_name, grp=group: self._remove_upload(sn, grp))
+                    break
+    
+    def _remove_upload(self, session_name, session_group):
+        """Remove upload from tracking"""
+        with self._upload_lock:
+            if session_group in self._session_group_uploads:
+                if session_name in self._session_group_uploads[session_group]:
+                    del self._session_group_uploads[session_group][session_name]
+                # Remove empty session groups
+                if not self._session_group_uploads[session_group]:
+                    del self._session_group_uploads[session_group]
+                self._update_global_progress()
+    
+    def _update_global_progress(self):
+        """Update the global progress bar display with per-session-group tracking"""
+        # Update visibility based on whether there are uploads and if user has shown it
+        has_uploads = bool(self._session_group_uploads)
+        
+        if not has_uploads:
+            # Clean up all progress widgets when no uploads
+            for widgets in self.session_progress_widgets.values():
+                label, pbar = widgets
+                label.deleteLater()
+                pbar.deleteLater()
+            self.session_progress_widgets.clear()
+            # Only hide if user hasn't explicitly shown it
+            if not self._upload_progress_user_shown:
+                self.global_progress_container.setVisible(False)
+            return
+        
+        # If there are uploads, only show if user has explicitly shown it
+        if self._upload_progress_user_shown:
+            self.global_progress_container.setVisible(True)
+        # Otherwise, keep it hidden (don't automatically show)
+        
+        # Update or create progress bars for each session group
+        for session_group, sessions in self._session_group_uploads.items():
+            if session_group not in self.session_progress_widgets:
+                # Create new progress bar for this session group
+                group_label = QLabel()
+                group_label.setStyleSheet("""
+                    color: #aaddff; 
+                    font-weight: bold; 
+                    font-size: 11px;
+                    background: transparent;
+                """)
+                
+                group_pbar = StyledProgressBar()
+                group_pbar.setMinimum(0)
+                group_pbar.setMaximum(100)
+                group_pbar.setValue(0)
+                group_pbar.setTextVisible(True)
+                group_pbar.setMaximumHeight(25)
+                
+                self.session_progress_layout.addWidget(group_label)
+                self.session_progress_layout.addWidget(group_pbar)
+                
+                self.session_progress_widgets[session_group] = (group_label, group_pbar)
+            
+            # Update the progress bar for this group
+            label, pbar = self.session_progress_widgets[session_group]
+            
+            total = len(sessions)
+            completed = sum(1 for s in sessions.values() if s['status'] == 'completed')
+            errors = sum(1 for s in sessions.values() if s['status'] == 'error')
+            uploading = sum(1 for s in sessions.values() if s['status'] == 'uploading')
+            
+            debug_print(f"[PROGRESS_UPDATE] Group={session_group}, Total={total}, Completed={completed}, Errors={errors}, Uploading={uploading}")
+            debug_print(f"[PROGRESS_UPDATE] Session statuses: {[(name, s['status'], s['progress']) for name, s in sessions.items()]}")
+            
+            # Calculate average progress for this group
+            total_progress = sum(s['progress'] for s in sessions.values())
+            avg_progress = total_progress / total if total > 0 else 0
+            
+            # Update label with session group name and status
+            if errors > 0:
+                icon = "⚠️"
+                status_text = f"{icon} {session_group} | Active: {uploading} | Done: {completed}/{total} | Errors: {errors}"
+            elif completed == total:
+                icon = "✅"
+                status_text = f"{icon} {session_group} | All Complete ({completed}/{total})"
+            else:
+                icon = "🔄"
+                status_text = f"{icon} {session_group} | Uploading: {uploading} | Done: {completed}/{total}"
+            
+            label.setText(status_text)
+            pbar.setValue(int(avg_progress))
+            
+            # Update progress bar format text based on stages
+            stages = [s['stage'] for s in sessions.values()]
+            if all(stage == 'complete' for stage in stages):
+                pbar.setFormat("✓ Complete - %p%")
+            elif 'error' in stages:
+                pbar.setFormat("⚠ %p% - Check logs")
+            elif all(stage in ['zip_uploaded', 'complete'] for stage in stages):
+                pbar.setFormat("%p% - Executing...")
+            else:
+                pbar.setFormat("%p% - Uploading...")
+        
+        # Remove progress bars for groups that no longer have uploads
+        groups_to_remove = []
+        for group in self.session_progress_widgets.keys():
+            if group not in self._session_group_uploads:
+                groups_to_remove.append(group)
+        
+        for group in groups_to_remove:
+            label, pbar = self.session_progress_widgets[group]
+            label.deleteLater()
+            pbar.deleteLater()
+            del self.session_progress_widgets[group]
+        
+        # Update main label with total summary
+        total_groups = len(self._session_group_uploads)
+        total_uploads = sum(len(sessions) for sessions in self._session_group_uploads.values())
+        total_completed = sum(
+            sum(1 for s in sessions.values() if s['status'] == 'completed')
+            for sessions in self._session_group_uploads.values()
+        )
+        
+        self.global_progress_label.setText(
+            f"🔄 Upload Progress: {total_groups} Session Group(s) | "
+            f"{total_completed}/{total_uploads} Sessions Completed"
+        )
+        
+        # Update window title with upload count
+        current_widget = self.get_current_cr_executor_widget()
+        if current_widget and hasattr(current_widget, 'session_type'):
+            base_title = f"CR TOOLS by esptnnd - CR EXECUTOR {current_widget.session_type}"
+        else:
+            base_title = "CR TOOLS by esptnnd"
+        
+        active_count = sum(
+            sum(1 for s in sessions.values() if s['status'] == 'uploading')
+            for sessions in self._session_group_uploads.values()
+        )
+        
+        if active_count > 0:
+            self.setWindowTitle(f"{base_title} [⬆ {active_count} uploading]")
+        else:
+            self.setWindowTitle(base_title)
+
+    def _toggle_upload_menu_action(self):
+        """Toggle the visibility of the upload progress container from menu"""
+        current_visibility = self.global_progress_container.isVisible()
+        new_visibility = not current_visibility
+        
+        self.global_progress_container.setVisible(new_visibility)
+        # Update the user preference flag
+        self._upload_progress_user_shown = new_visibility
+        
+        # Update the menu action text based on visibility
+        if new_visibility:
+            self.action_show_upload_progress.setText("Hide Upload Progress")
+        else:
+            self.action_show_upload_progress.setText("Show Upload Progress")
+
+    def _toggle_upload_progress(self):
+        """Toggle the visibility of the upload progress container"""
+        current_visibility = self.global_progress_container.isVisible()
+        new_visibility = not current_visibility
+        
+        self.global_progress_container.setVisible(new_visibility)
+        # Update the user preference flag
+        self._upload_progress_user_shown = new_visibility
+        
+        # Update the menu action text since we're now using menu-based toggle
+        if hasattr(self, 'action_show_upload_progress'):
+            if new_visibility:
+                self.action_show_upload_progress.setText("Hide Upload Progress")
+            else:
+                self.action_show_upload_progress.setText("Show Upload Progress")
 
     def duplicate_session_group(self):
         current_widget = self.get_current_cr_executor_widget()

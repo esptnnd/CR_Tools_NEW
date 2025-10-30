@@ -17,6 +17,7 @@ vm_mapping = {
     "ENM3A": "svc",
     "ENM4A": "svc",
     "ENM5A": "svc",
+    "ENM6A": "svc",    
     "ENM7A": "scp",
 }
 

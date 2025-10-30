@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import QTextEdit, QMainWindow, QPushButton, QLineEdit, QProgressBar, QLabel, QMenuBar, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout, QListWidget, QAbstractItemView, QFrame
+from PyQt5.QtWidgets import QTextEdit, QMainWindow, QPushButton, QLineEdit, QProgressBar, QLabel, QMenuBar, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout, QListWidget, QAbstractItemView, QFrame, QDateEdit, QSlider
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPainter, QColor, QLinearGradient, QPen, QPalette, QBrush, QPixmap, QIcon, QFont
 import os
@@ -6,12 +6,12 @@ import os
 # Style configuration
 STYLE_CONFIG = {
     'colors': {
-        'primary': '#00FF00',  # Green
+        'primary': '#FFFFFF',  # White
         'secondary': '#1E90FF',  # Dodger Blue
         'background': '#1A1A1A',  # Dark Gray
         'text': '#E0E0E0',  # Light Gray
         'border': 'rgba(128, 128, 128, 0.3)',  # Grey with 30% opacity
-        'progress': '#00FF00',
+        'progress': '#FFFFFF',  # White
         'menu_bg': '#000000',  # Black
     },
     'opacity': {
@@ -181,6 +181,94 @@ class StyledLabel(QLabel):
                 font-family: {STYLE_CONFIG['fonts']['default'][0]};
                 font-size: {STYLE_CONFIG['fonts']['default'][1]}pt;
                 font-weight: bold;
+            }}
+        """)
+
+class StyledDateEdit(QDateEdit):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setStyleSheet(f"""
+            QDateEdit {{
+                background-color: rgba(26, 26, 26, 0.8);
+                color: white;
+                border: 1px solid rgba(128, 128, 128, 0.3);
+                border-radius: 4px;
+                padding: 5px;
+                font-family: {STYLE_CONFIG['fonts']['default'][0]};
+                font-size: {STYLE_CONFIG['fonts']['default'][1]}pt;
+                font-weight: bold;
+            }}
+            QDateEdit:focus {{
+                border: 1px solid rgba(128, 128, 128, 0.5);
+                background-color: rgba(26, 26, 26, 0.9);
+            }}
+            QDateEdit::drop-down {{
+                subcontrol-origin: padding;
+                subcontrol-position: top right;
+                width: 20px;
+                border-left-width: 1px;
+                border-left-color: rgba(128, 128, 128, 0.3);
+                border-left-style: solid;
+                background-color: rgba(26, 26, 26, 0.8);
+            }}
+            QDateEdit::down-arrow {{
+                image: url(none);
+                border: 1px solid rgba(128, 128, 128, 0.3);
+                background-color: rgba(128, 128, 128, 0.3);
+                width: 6px;
+                height: 6px;
+            }}
+            QCalendarWidget {{
+                background-color: rgba(26, 26, 26, 0.95);
+                color: white;
+                border: 1px solid rgba(128, 128, 128, 0.5);
+            }}
+            QCalendarWidget QAbstractItemView:enabled {{
+                color: white;
+                background-color: rgba(26, 26, 26, 0.9);
+                selection-background-color: {STYLE_CONFIG['colors']['primary']};
+                selection-color: black;
+            }}
+            QCalendarWidget QWidget {{
+                alternate-background-color: rgba(40, 40, 40, 0.8);
+            }}
+        """)
+
+class StyledSlider(QSlider):
+    def __init__(self, orientation=Qt.Horizontal, parent=None):
+        super().__init__(orientation, parent)
+        self.setStyleSheet(f"""
+            QSlider::groove:horizontal {{
+                border: 1px solid rgba(128, 128, 128, 0.3);
+                height: 8px;
+                background: rgba(26, 26, 26, 0.8);
+                margin: 2px 0;
+                border-radius: 4px;
+            }}
+            QSlider::handle:horizontal {{
+                background: {STYLE_CONFIG['colors']['primary']};
+                border: 1px solid rgba(128, 128, 128, 0.5);
+                width: 18px;
+                margin: -2px 0;
+                border-radius: 3px;
+            }}
+            QSlider::handle:horizontal:hover {{
+                background: rgba(255, 255, 255, 0.8);
+            }}
+            QSlider::handle:horizontal:pressed {{
+                background: rgba(255, 255, 255, 1.0);
+            }}
+            QSlider::sub-page:horizontal {{
+                background: {STYLE_CONFIG['colors']['primary']};
+                border: 1px solid rgba(128, 128, 128, 0.3);
+                height: 8px;
+                border-radius: 4px;
+            }}
+            QSlider::add-page:horizontal {{
+                background: rgba(60, 60, 60, 0.8);
+                border: 1px solid rgba(128, 128, 128, 0.3);
+                height: 8px;
+                border-radius: 4px;
             }}
         """)
 

@@ -419,6 +419,7 @@ class SSHTab(QWidget):
         if 'failed' in message.lower() or 'error' in message.lower():
             QMessageBox.critical(self, "Upload Error", message)
         else:
+            debug_print(f"[WORKER] Emitted upload_done for {self.target['session_name']}")
             # On success, populate the batch run textarea with cd and ls commands
             # Use var_FOLDER_CR and var_SCREEN_CR from ssh_manager
             current_widget = self.ssh_manager.get_current_cr_executor_widget()
