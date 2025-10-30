@@ -1,4 +1,3 @@
-please add this note 
 # -----------------------------------------------------------------------------
 # Author                : esptnnd
 # Tools Name            : CR_Tools_NEW
