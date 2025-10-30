@@ -1,13 +1,16 @@
-# -----------------------------------------------------------------------------
-# Author                : esptnnd
-# Tools Name            : CR_Tools_NEW
-# Company               : Ericsson Indonesia
-# Created on            : 7 May 2025
-# Description           : CR TOOLS by esptnnd — built for the ECT Project to help the team
-#                         execute faster, smoother, and with way less hassle.
-#                         Making life easier, one script at a time!
-#
-# -----------------------------------------------------------------------------
+# 🛠️ CR_Tools_NEW
+
+> CR TOOLS by esptnnd — built for the ECT Project to help the team
+> execute faster, smoother, and with way less hassle.
+> Making life easier, one script at a time!
+
+---
+
+### ℹ️ Project Details
+
+* **Author:** esptnnd
+* **Company:** Ericsson Indonesia
+* **Created on:** 7 May 2025
 
 ```text
 # -----------------------------------------------------------------------------
@@ -73,7 +76,7 @@
 # # - Simplifies the UI with a single "Browse" button.
 # # - Improves path formatting and color-coding in the Excel report.
 # -----------------------------------------------------------------------------
-
+```
   **CR Tools New** is a comprehensive Python-based application designed for network engineers to streamline various tasks. It
   features a user-friendly Graphical User Interface (GUI) that provides robust SSH connectivity for managing multiple server sessions.
 
