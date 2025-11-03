@@ -376,9 +376,51 @@ class SSHManager(QMainWindow):
             self.cleanup_cr_executor_tabs(self.cr_executor_widget_true)
         if self.cr_executor_widget_dtac:
             self.cleanup_cr_executor_tabs(self.cr_executor_widget_dtac)
+        
+        # Clean up temporary directories in Temp folder
+        self.cleanup_temp_directories()
+        
         if getattr(self, 'DEBUG_MODE', 'DEBUG') == 'DEBUG':
             debug_print("Accepting close event.")
         event.accept()
+
+    def cleanup_temp_directories(self):
+        """Clean up temporary directories in the Temp folder when closing the application"""
+        import shutil
+        import threading
+        
+        def cleanup_thread():
+            try:
+                temp_dir = os.path.join(os.path.dirname(__file__), 'Temp')
+                if os.path.exists(temp_dir):
+                    # Get list of directories to show progress
+                    temp_items = [item for item in os.listdir(temp_dir) 
+                                 if os.path.isdir(os.path.join(temp_dir, item))]
+                    total_items = len(temp_items)
+                    
+                    if total_items > 0:
+                        debug_print(f"Cleaning up {total_items} temporary directory(s)...")
+                        
+                        for idx, item in enumerate(temp_items):
+                            item_path = os.path.join(temp_dir, item)
+                            try:
+                                if os.path.isdir(item_path):
+                                    shutil.rmtree(item_path)
+                                    debug_print(f"Removed: {item} ({idx + 1}/{total_items})")
+                            except Exception as e:
+                                debug_print(f"Warning: Could not remove {item}: {e}")
+                        
+                        debug_print(f"Completed cleanup of temporary directories.")
+                    else:
+                        debug_print("No temporary directories to clean up.")
+                else:
+                    debug_print("Temp directory does not exist.")
+            except Exception as e:
+                debug_print(f"Error during temp directory cleanup: {e}")
+        
+        # Run cleanup in background thread to avoid blocking the UI
+        cleanup_thread_obj = threading.Thread(target=cleanup_thread, daemon=True)
+        cleanup_thread_obj.start()
 
     def profile_tab_change(self, index):
         import time

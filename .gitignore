@@ -85,3 +85,7 @@ query_001.txt
 # YoYo AI version control directory
 .yoyo/
 /01_SCRIPT
+/tests/__pycache__
+/lib/__pycache__
+yoyo_1.zip
+/tests
